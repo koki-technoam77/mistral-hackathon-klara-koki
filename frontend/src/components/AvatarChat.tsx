@@ -207,10 +207,11 @@ export default function AvatarChat({
   // ─── Voice recording ──────────────────────────────────────────────────────
 
   const startRecording = useCallback(async () => {
-    if (isProcessing) return;
+    if (isProcessing || isRecording) return;
     setChatError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mountedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -227,7 +228,7 @@ export default function AvatarChat({
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (blob.size === 0) return; // Guard: instant tap produces empty blob
+        if (blob.size === 0) return;
         try {
           const text = await api.transcribeAudio(blob);
           if (text && sendMessageRef.current) {
@@ -246,7 +247,7 @@ export default function AvatarChat({
       const msg = err instanceof Error ? err.message : String(err);
       setChatError(`Mic error: ${msg}`);
     }
-  }, [isProcessing]);
+  }, [isProcessing, isRecording]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {
@@ -254,6 +255,16 @@ export default function AvatarChat({
     }
     setIsRecording(false);
   }, []);
+
+  // Auto-start recording when avatar is connected and idle
+  useEffect(() => {
+    if (avatarStatus === "connected" && !isProcessing && !isSpeaking && !isRecording) {
+      const timer = setTimeout(() => {
+        if (mountedRef.current) startRecording();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [avatarStatus, isProcessing, isSpeaking, isRecording, startRecording]);
 
   // ─── Workflow execution ────────────────────────────────────────────────────
 
@@ -552,67 +563,90 @@ export default function AvatarChat({
 
       {/* Input area */}
       <div className="px-3 pb-3 pt-2 border-t border-gray-800 shrink-0">
-        <form onSubmit={handleSubmit} className="flex items-end gap-2">
-          {/* Voice button */}
-          <motion.button
-            type="button"
-            onPointerDown={(e) => { e.preventDefault(); startRecording(); }}
-            onPointerUp={(e) => { e.preventDefault(); stopRecording(); }}
-            onPointerLeave={(e) => { e.preventDefault(); stopRecording(); }}
-            onPointerCancel={(e) => { e.preventDefault(); stopRecording(); }}
-            whileTap={{ scale: 0.88 }}
-            disabled={isProcessing}
-            className={`w-12 h-12 rounded-full flex items-center justify-center select-none touch-none transition-colors shrink-0 ${
-              isRecording
-                ? "bg-red-600 recording-pulse"
-                : "bg-gray-700 hover:bg-indigo-700 disabled:opacity-50"
-            }`}
-            title="Hold to record voice"
-          >
-            <svg viewBox="0 0 20 20" className="w-5 h-5 fill-white" fill="currentColor">
-              <path d="M10 1a3 3 0 00-3 3v6a3 3 0 006 0V4a3 3 0 00-3-3z" />
-              <path d="M5.5 10a4.5 4.5 0 009 0h-1a3.5 3.5 0 01-7 0h-1zM10 16v3m-2 0h4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-            </svg>
-          </motion.button>
-
-          {/* Text input */}
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isRecording ? "Listening... release to send" : "Type or hold mic to speak..."}
-            rows={1}
-            disabled={isProcessing || isRecording}
-            className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 max-h-32"
-            style={{ minHeight: "2.5rem" }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-            }}
-          />
-
-          {/* Send button */}
-          <motion.button
-            type="submit"
-            disabled={!inputText.trim() || isProcessing}
-            whileTap={{ scale: 0.92 }}
-            className="shrink-0 w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-          >
-            <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none">
-              <path d="M3 10L17 3l-7 7 7 7-14-7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          </motion.button>
-        </form>
-
-        {isRecording && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center text-red-400 text-xs mt-1.5 font-medium"
-          >
-            Listening... release to send
-          </motion.p>
+        {isRecording ? (
+          /* Recording active — show stop button */
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
+              <motion.div
+                className="w-2 h-2 rounded-full bg-red-500"
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 1.2, repeat: Infinity }}
+              />
+              Listening...
+            </div>
+            <motion.button
+              type="button"
+              onClick={stopRecording}
+              whileTap={{ scale: 0.9 }}
+              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-colors shadow-lg shadow-red-900/40"
+            >
+              <svg viewBox="0 0 20 20" className="w-5 h-5" fill="white">
+                <rect x="5" y="5" width="10" height="10" rx="2" />
+              </svg>
+            </motion.button>
+            <p className="text-gray-500 text-xs">Tap to send</p>
+          </div>
+        ) : isProcessing || isSpeaking ? (
+          /* Processing or avatar speaking — show status */
+          <div className="flex items-center justify-center gap-2 py-3">
+            <motion.div
+              className="flex gap-1 items-end h-4"
+              animate={{ opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            >
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-1 bg-indigo-500 rounded-full"
+                  animate={{ height: ["6px", "16px", "6px"] }}
+                  transition={{ duration: 0.7, repeat: Infinity, delay: i * 0.15 }}
+                />
+              ))}
+            </motion.div>
+            <span className="text-gray-400 text-sm">
+              {isSpeaking ? "Speaking..." : "Thinking..."}
+            </span>
+          </div>
+        ) : (
+          /* Idle — show text input as fallback */
+          <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            <motion.button
+              type="button"
+              onClick={startRecording}
+              whileTap={{ scale: 0.88 }}
+              className="w-12 h-12 rounded-full bg-gray-700 hover:bg-indigo-700 flex items-center justify-center transition-colors shrink-0"
+              title="Start recording"
+            >
+              <svg viewBox="0 0 20 20" className="w-5 h-5 fill-white" fill="currentColor">
+                <path d="M10 1a3 3 0 00-3 3v6a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path d="M5.5 10a4.5 4.5 0 009 0h-1a3.5 3.5 0 01-7 0h-1zM10 16v3m-2 0h4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+              </svg>
+            </motion.button>
+            <textarea
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type or tap mic..."
+              rows={1}
+              className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors max-h-32"
+              style={{ minHeight: "2.5rem" }}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+              }}
+            />
+            <motion.button
+              type="submit"
+              disabled={!inputText.trim()}
+              whileTap={{ scale: 0.92 }}
+              className="shrink-0 w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+            >
+              <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none">
+                <path d="M3 10L17 3l-7 7 7 7-14-7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+            </motion.button>
+          </form>
         )}
       </div>
     </div>

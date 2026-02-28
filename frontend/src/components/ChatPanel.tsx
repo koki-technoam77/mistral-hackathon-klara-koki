@@ -42,12 +42,15 @@ export default function ChatPanel({
   const [chatError, setChatError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastUserRequestRef = useRef<string>("");
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -64,12 +67,18 @@ export default function ChatPanel({
     };
   }, []);
 
+  // Reset feedback state when workflow changes
+  useEffect(() => {
+    setFeedbackSent(false);
+  }, [currentWorkflow]);
+
   // ─── Text send ──────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || isProcessing) return;
       setChatError(null);
+      lastUserRequestRef.current = text.trim();
 
       const userMsg: Message = {
         id: crypto.randomUUID(),
@@ -189,6 +198,60 @@ export default function ChatPanel({
   const handleVoicePointerUp = (e: React.PointerEvent) => {
     e.preventDefault();
     stopRecording();
+  };
+
+  // ─── Feedback handlers ────────────────────────────────────────────────────
+
+  const handleApproveWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "accept",
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
+  };
+
+  const handleEditWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "edit",
+        edited: true,
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
+  };
+
+  const handleRejectWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "reject",
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
   };
 
   // ─── Workflow execution ─────────────────────────────────────────────────────
@@ -405,26 +468,53 @@ export default function ChatPanel({
               </p>
               <p className="text-xs text-gray-500">{currentWorkflow.steps.length} steps</p>
             </div>
-            <button
-              onClick={handleRunWorkflow}
-              disabled={isExecuting}
-              className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
-            >
-              {isExecuting ? (
-                <>
-                  <motion.span
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="inline-block"
-                  >
-                    ⟳
-                  </motion.span>
-                  Running…
-                </>
-              ) : (
-                <>▶ Run Workflow</>
-              )}
-            </button>
+
+            {!feedbackSent ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleApproveWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={handleEditWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleRejectWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleRunWorkflow}
+                disabled={isExecuting}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+              >
+                {isExecuting ? (
+                  <>
+                    <motion.span
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="inline-block"
+                    >
+                      ⟳
+                    </motion.span>
+                    Running…
+                  </>
+                ) : (
+                  <>▶ Run Workflow</>
+                )}
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,4 +1,8 @@
+import hashlib
+import json
 import logging
+import os
+import re
 from datetime import UTC, datetime
 
 from app.models.character import (
@@ -14,6 +18,8 @@ from app.models.character import (
 from app.models.workflow import WorkflowDefinition
 
 logger = logging.getLogger(__name__)
+
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
 APPEARANCE_STAGES = {
@@ -47,42 +53,57 @@ ACTION_TO_BRANCH = {
 
 
 class CharacterService:
-    def __init__(self):
-        self.state = create_default_character()
+    def __init__(self, storage_dir=None):
+        self._states: dict[str, CharacterState] = {}
+        self._storage_dir = storage_dir
+        if storage_dir:
+            os.makedirs(storage_dir, exist_ok=True)
+
+    def get_state(self, session_id: str = "default") -> CharacterState:
+        if session_id not in self._states:
+            self._states[session_id] = self._load_or_create(session_id)
+        return self._states[session_id]
+
+    @property
+    def state(self) -> CharacterState:
+        return self.get_state("default")
 
     @property
     def character_state(self) -> CharacterState:
-        return self.state
+        return self.get_state("default")
 
-    def award_xp(self, workflow: WorkflowDefinition) -> dict:
+    def award_xp(self, workflow: WorkflowDefinition, session_id: str = "default") -> dict:
+        state = self.get_state(session_id)
         xp_earned = calculate_xp(workflow)
-        self.state.xp += xp_earned
+        state.xp += xp_earned
 
         touched_branches = self._get_workflow_branches(workflow)
         for branch in touched_branches:
-            if branch in self.state.skills:
-                self.state.skills[branch].xp += xp_earned
-                self._check_skill_level_up(branch)
+            if branch in state.skills:
+                state.skills[branch].xp += xp_earned
+                self._check_skill_level_up(state, branch)
 
-        leveled_up = self._check_level_up()
+        leveled_up = self._check_level_up(state)
 
         for branch in touched_branches:
-            if branch in self.state.skills:
-                self.state.skills[branch].workflows_completed += 1
+            if branch in state.skills:
+                state.skills[branch].workflows_completed += 1
         if not touched_branches:
-            self.state.skills[SkillBranch.communication].workflows_completed += 1
+            state.skills[SkillBranch.communication].workflows_completed += 1
 
-        achievements_unlocked = self._check_achievements()
+        achievements_unlocked = self._check_achievements(state)
 
         skill_ups = [
             branch.value for branch in touched_branches
-            if self.state.skills[branch].level > 0
+            if state.skills[branch].level > 0
         ]
+
+        self._persist(session_id, state)
 
         return {
             "xp_earned": xp_earned,
             "level_up": leveled_up,
-            "new_level": self.state.level,
+            "new_level": state.level,
             "achievements_unlocked": achievements_unlocked,
             "skill_ups": skill_ups,
         }
@@ -95,8 +116,8 @@ class CharacterService:
                 branches.add(branch)
         return branches
 
-    def _check_skill_level_up(self, branch: SkillBranch) -> bool:
-        skill = self.state.skills[branch]
+    def _check_skill_level_up(self, state: CharacterState, branch: SkillBranch) -> bool:
+        skill = state.skills[branch]
         xp_required = LEVEL_UP_THRESHOLDS.get(skill.level + 1, skill.level * 500 + 500)
 
         if skill.xp >= xp_required:
@@ -106,47 +127,47 @@ class CharacterService:
 
         return False
 
-    def _check_level_up(self) -> bool:
-        if self.state.level in LEVEL_UP_THRESHOLDS:
-            xp_required = LEVEL_UP_THRESHOLDS[self.state.level]
+    def _check_level_up(self, state: CharacterState) -> bool:
+        if state.level in LEVEL_UP_THRESHOLDS:
+            xp_required = LEVEL_UP_THRESHOLDS[state.level]
         else:
-            xp_required = self.state.level * 500
+            xp_required = state.level * 500
 
-        if self.state.xp >= xp_required:
-            self.state.level += 1
-            self.state.xp = 0
+        if state.xp >= xp_required:
+            state.level += 1
+            state.xp = 0
 
-            next_level = self.state.level
+            next_level = state.level
             if next_level in LEVEL_UP_THRESHOLDS:
-                self.state.xp_to_next = LEVEL_UP_THRESHOLDS[next_level]
+                state.xp_to_next = LEVEL_UP_THRESHOLDS[next_level]
             else:
-                self.state.xp_to_next = next_level * 500
+                state.xp_to_next = next_level * 500
 
-            self._update_appearance_stage()
-            self._update_voice_config()
+            self._update_appearance_stage(state)
+            self._update_voice_config(state)
 
             return True
 
         return False
 
-    def _update_appearance_stage(self) -> None:
-        level = self.state.level
+    def _update_appearance_stage(self, state: CharacterState) -> None:
+        level = state.level
         for stage_level in sorted(APPEARANCE_STAGES.keys(), reverse=True):
             if level >= stage_level:
-                self.state.appearance_stage = APPEARANCE_STAGES[stage_level]
+                state.appearance_stage = APPEARANCE_STAGES[stage_level]
                 break
 
-    def _update_voice_config(self) -> None:
+    def _update_voice_config(self, state: CharacterState) -> None:
         from app.services.voice import VoiceService
-        self.state.voice_config = VoiceService.get_voice_for_level(self.state.level)
+        state.voice_config = VoiceService.get_voice_for_level(state.level)
 
-    def _check_achievements(self) -> list[str]:
+    def _check_achievements(self, state: CharacterState) -> list[str]:
         unlocked = []
         total_workflows = sum(
-            skill.workflows_completed for skill in self.state.skills.values()
+            skill.workflows_completed for skill in state.skills.values()
         )
 
-        for achievement in self.state.achievements:
+        for achievement in state.achievements:
             if achievement.earned:
                 continue
 
@@ -160,22 +181,57 @@ class CharacterService:
                 achievement.earned_at = datetime.now(tz=UTC)
                 unlocked.append(achievement.id)
 
-            elif achievement.id == "multi_service" and self._check_multi_service():
+            elif achievement.id == "multi_service" and self._check_multi_service(state):
                 achievement.earned = True
                 achievement.earned_at = datetime.now(tz=UTC)
                 unlocked.append(achievement.id)
 
-            elif achievement.id == "speedrunner" and self._check_speedrunner():
+            elif achievement.id == "speedrunner" and self._check_speedrunner(state):
                 achievement.earned = True
                 achievement.earned_at = datetime.now(tz=UTC)
                 unlocked.append(achievement.id)
 
         return unlocked
 
-    def _check_multi_service(self) -> bool:
+    def _check_multi_service(self, state: CharacterState) -> bool:
         return any(
-            skill.workflows_completed >= 3 for skill in self.state.skills.values()
+            skill.workflows_completed >= 3 for skill in state.skills.values()
         )
 
-    def _check_speedrunner(self) -> bool:
-        return self.state.level >= 5
+    def _check_speedrunner(self, state: CharacterState) -> bool:
+        return state.level >= 5
+
+    # ── Persistence helpers ──────────────────────────────────────────────────
+
+    def _safe_id(self, session_id: str) -> str:
+        if _SAFE_ID_RE.match(session_id):
+            return session_id
+        return hashlib.sha256(session_id.encode()).hexdigest()[:16]
+
+    def _path_for(self, session_id: str) -> str:
+        if not self._storage_dir:
+            return ""
+        return os.path.join(self._storage_dir, f"{self._safe_id(session_id)}.json")
+
+    def _load_or_create(self, session_id: str) -> CharacterState:
+        if not self._storage_dir:
+            return create_default_character()
+        path = self._path_for(session_id)
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                return CharacterState.model_validate(data)
+            except Exception:
+                logger.warning("Failed to load character state for %s", session_id, exc_info=True)
+        return create_default_character()
+
+    def _persist(self, session_id: str, state: CharacterState) -> None:
+        if not self._storage_dir:
+            return
+        path = self._path_for(session_id)
+        try:
+            with open(path, "w") as f:
+                json.dump(state.model_dump(mode="json"), f)
+        except Exception:
+            logger.warning("Failed to persist character state for %s", session_id, exc_info=True)

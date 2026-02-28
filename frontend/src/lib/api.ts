@@ -94,6 +94,89 @@ export async function submitFeedback(
   });
 }
 
+// ─── SSE Streaming Execution ──────────────────────────────────────────────────
+
+export interface StreamEvent {
+  type: "step_start" | "step_complete" | "step_error" | "done";
+  step_id?: string;
+  status?: string;
+  result?: WorkflowExecuteResponse;
+}
+
+export async function executeWorkflowStream(
+  workflow: WorkflowDefinition,
+  sessionId: string,
+  onStepStart: (stepId: string) => void,
+  onStepComplete: (stepId: string, status: string) => void,
+  onDone: (result: WorkflowExecuteResponse) => void,
+  onError?: (error: Error) => void
+): Promise<void> {
+  const url = `${BASE_URL}/api/workflow/execute-stream`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ workflow, session_id: sessionId }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Stream error ${res.status}: ${res.statusText}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr) continue;
+
+        try {
+          const event: StreamEvent = JSON.parse(jsonStr);
+          switch (event.type) {
+            case "step_start":
+              if (event.step_id) onStepStart(event.step_id);
+              break;
+            case "step_complete":
+              if (event.step_id) onStepComplete(event.step_id, event.status ?? "success");
+              break;
+            case "step_error":
+              if (event.step_id) onStepComplete(event.step_id, "error");
+              break;
+            case "done":
+              if (event.result) onDone(event.result);
+              break;
+          }
+        } catch {
+          // skip malformed events
+        }
+      }
+    }
+  } catch (err) {
+    if (onError) {
+      onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+}
+
 // ─── Character ────────────────────────────────────────────────────────────────
 
 export async function getCharacter(): Promise<CharacterState> {
