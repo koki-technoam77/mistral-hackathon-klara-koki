@@ -92,6 +92,7 @@ class WorkflowGenerator:
         services: list[str],
         trigger_type: str,
         trigger_config: dict,
+        service_config: dict | None = None,
     ) -> WorkflowDefinition:
         # Sanitize inputs
         request_summary = self._sanitize(request_summary, max_len=500)
@@ -100,7 +101,7 @@ class WorkflowGenerator:
 
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(
-            request_summary, services, trigger_type, trigger_config
+            request_summary, services, trigger_type, trigger_config, service_config
         )
 
         if self.ft_model_name:
@@ -163,16 +164,20 @@ Rules:
         services: list[str],
         trigger_type: str,
         trigger_config: dict,
+        service_config: dict | None = None,
     ) -> str:
         services_str = ", ".join(services) if services else "auto-detect"
         config_str = json.dumps(trigger_config) if trigger_config else "{}"
+        svc_config_str = json.dumps(service_config) if service_config else "{}"
         return f"""Generate a workflow for:
 
 Request: {request_summary}
 Services: {services_str}
 Trigger: {trigger_type}
 Config: {config_str}
+Service Config: {svc_config_str}
 
+Use the service config values (e.g., email addresses, channel names) in the corresponding step params.
 Output valid JSON only."""
 
     def _parse_and_validate(self, response: str) -> WorkflowDefinition:

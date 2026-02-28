@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 from mistralai import Mistral
 
+from app.models.services import COMPOSIO_ACTIONS
 from app.models.workflow import (
     ALLOWED_ACTIONS,
     WorkflowDefinition,
@@ -17,20 +18,89 @@ from app.models.workflow import (
     WorkflowExecutionStatus,
 )
 
-
-COMPOSIO_ACTIONS = frozenset([
-    "send_email",
-    "create_calendar_event",
-    "list_emails",
-    "create_task",
-    "send_slack_message",
-])
-
 EXECUTION_TIMEOUT = 120.0  # 2 minutes total
 MAX_LLM_CONTENT_LENGTH = 10000  # chars
 MAX_RESPONSE_BYTES = 1_000_000  # 1 MB
 
 logger = __import__("logging").getLogger(__name__)
+
+# ─── Descriptive mock results per Composio action (for demo) ─────────────────
+# Swap with real Composio SDK calls when ready.
+
+_COMPOSIO_MOCK_RESULTS: dict[str, object] = {
+    "send_email": lambda p: {
+        "status": "success",
+        "message": f"Email sent to {p.get('recipient_email', p.get('to', 'the recipient'))}",
+        "details": f"Subject: {p.get('subject', 'Your automated message')}",
+    },
+    "list_emails": lambda p: {
+        "status": "success",
+        "message": f"Retrieved {p.get('count', 10)} recent emails",
+        "details": "Inbox scanned successfully",
+    },
+    "send_slack_message": lambda p: {
+        "status": "success",
+        "message": f"Message posted to {p.get('channel', '#general')}",
+    },
+    "slack_notify": lambda p: {
+        "status": "success",
+        "message": f"Notification sent to {p.get('channel', '#general')}",
+    },
+    "discord_message": lambda p: {
+        "status": "success",
+        "message": f"Message sent to {p.get('channel', 'the channel')} on {p.get('server', 'Discord')}",
+    },
+    "send_message": lambda p: {
+        "status": "success",
+        "message": f"Message delivered to {p.get('recipient', p.get('chat_id', 'the recipient'))}",
+    },
+    "create_calendar_event": lambda p: {
+        "status": "success",
+        "message": f"Calendar event \"{p.get('event_title', p.get('title', 'New Event'))}\" created",
+    },
+    "schedule_task": lambda p: {
+        "status": "success",
+        "message": f"Task scheduled: {p.get('title', p.get('meeting_topic', 'Scheduled item'))}",
+    },
+    "create_task": lambda p: {
+        "status": "success",
+        "message": f"Task created: {p.get('title', p.get('name', 'New task'))}",
+    },
+    "post_social": lambda p: {
+        "status": "success",
+        "message": f"Posted to {p.get('platform', 'social media')}",
+    },
+    "fetch_data": lambda p: {
+        "status": "success",
+        "message": f"Data fetched from {p.get('source', p.get('url', 'the service'))}",
+        "result": "Data retrieved successfully",
+    },
+    "transform_data": lambda p: {
+        "status": "success",
+        "message": "Data transformed successfully",
+    },
+    "aggregate_data": lambda p: {
+        "status": "success",
+        "message": "Data aggregated successfully",
+    },
+    "query_database": lambda p: {
+        "status": "success",
+        "message": f"Query executed on {p.get('database', 'the database')}",
+        "result": "Results retrieved",
+    },
+    "write_document": lambda p: {
+        "status": "success",
+        "message": f"Document written to {p.get('destination', 'the service')}",
+    },
+    "deploy_service": lambda p: {
+        "status": "success",
+        "message": f"Deployed to {p.get('target', p.get('repo', 'the service'))}",
+    },
+    "monitor_system": lambda p: {
+        "status": "success",
+        "message": "System health check passed",
+    },
+}
 
 
 class WorkflowExecutor:
@@ -104,12 +174,17 @@ class WorkflowExecutor:
     async def _execute_composio(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
 
-        return {
-            "status": "success",
-            "action": step.action,
-            "params": params,
-            "result": f"Composio action '{step.action}' executed",
-        }
+        # Action-specific descriptive results for demo quality.
+        # Extensibility: swap this with real Composio SDK calls later.
+        mock_fn = _COMPOSIO_MOCK_RESULTS.get(step.action)
+        if mock_fn:
+            result = mock_fn(params)
+        else:
+            result = {"status": "success", "message": f"Action '{step.action}' completed"}
+
+        result["action"] = step.action
+        result["params"] = params
+        return result
 
     async def _execute_api_call(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
@@ -200,13 +275,12 @@ class WorkflowExecutor:
 
         return {
             "status": "success",
+            "message": f"Found results for \"{query}\"",
             "query": query,
             "results": [
-                {
-                    "title": f"Result for '{query}'",
-                    "url": "https://example.com",
-                    "snippet": "Mock search result",
-                }
+                {"title": f"Top result for '{query}'", "url": "https://example.com/1", "snippet": f"Latest updates about {query}..."},
+                {"title": f"News: {query}", "url": "https://example.com/2", "snippet": f"Breaking news and analysis on {query}..."},
+                {"title": f"{query} - Overview", "url": "https://example.com/3", "snippet": f"Comprehensive overview of {query}..."},
             ],
         }
 

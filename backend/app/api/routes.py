@@ -23,7 +23,7 @@ from app.models.workflow import WorkflowDefinition, WorkflowExecution
 from app.services.ai_team import AITeamOrchestrator
 from app.services.character import CharacterService
 from app.services.executor import WorkflowExecutor
-from app.services.orchestrator import OrchestratorAgent, OrchestratorResponse
+from app.services.orchestrator import ConversationState, OrchestratorAgent, OrchestratorResponse
 from app.services.voice import VoiceService
 from app.services.workflow_gen import WorkflowGenerator
 
@@ -120,13 +120,11 @@ class ChatResponse(BaseModel):
     workflow: Optional[WorkflowDefinition] = None
     character_state: CharacterState
     session_id: str
+    conversation_state: str = "collecting_info"
+    execution_result: Optional[dict] = None
 
 
-ALLOWED_SERVICES = frozenset([
-    "Gmail", "Slack", "Discord", "Twitter", "Google Sheets", "Google Calendar",
-    "Notion", "Trello", "GitHub", "Jira", "Linear", "Salesforce", "HubSpot",
-    "Zapier", "Airtable", "Dropbox", "OneDrive", "Teams", "Telegram", "WhatsApp",
-])
+from app.models.services import SUPPORTED_SERVICES as ALLOWED_SERVICES
 
 
 class WorkflowGenerateRequest(BaseModel):
@@ -178,7 +176,49 @@ async def chat(request: ChatRequest):
     try:
         orchestrator_response: OrchestratorResponse = await orchestrator.chat(request.message)
 
+        # ── FLOW 1: User confirmed execution ─────────────────────────
+        if orchestrator_response.execute_now and orchestrator.pending_workflow:
+            orchestrator.state = ConversationState.executing
+            workflow = orchestrator.pending_workflow
+
+            try:
+                execution = await services["workflow_executor"].execute(workflow)
+                xp_result = services["character_service"].award_xp(workflow)
+                character_state = services["character_service"].character_state
+
+                summary = await orchestrator.format_execution_results(
+                    workflow, execution.step_results, xp_result
+                )
+
+                return ChatResponse(
+                    message=summary,
+                    ready=False,
+                    workflow=workflow,
+                    character_state=character_state,
+                    session_id=request.session_id,
+                    conversation_state=orchestrator.state.value,
+                    execution_result={
+                        "status": execution.status.value,
+                        "step_results": execution.step_results,
+                        "xp_result": xp_result,
+                    },
+                )
+            except Exception as e:
+                logger.error("Workflow execution failed: %s", e, exc_info=True)
+                orchestrator.state = ConversationState.completed
+                character_state = services["character_service"].character_state
+                return ChatResponse(
+                    message="Oops, something went wrong while running the workflow. Want to try again?",
+                    ready=False,
+                    workflow=workflow,
+                    character_state=character_state,
+                    session_id=request.session_id,
+                    conversation_state=orchestrator.state.value,
+                )
+
+        # ── FLOW 2: Workflow generation triggered ────────────────────
         workflow = None
+        message = orchestrator_response.message
         if orchestrator_response.ready and orchestrator_response.workflow_request:
             try:
                 workflow = await services["workflow_generator"].generate(
@@ -186,19 +226,26 @@ async def chat(request: ChatRequest):
                     services=orchestrator_response.workflow_request.get("services", []),
                     trigger_type=orchestrator_response.workflow_request.get("trigger_type", "manual"),
                     trigger_config=orchestrator_response.workflow_request.get("trigger_config", {}),
+                    service_config=orchestrator_response.workflow_request.get("service_config"),
                 )
+                # Generate Flow-chan explanation instead of generic message
+                message = await orchestrator.explain_workflow(workflow)
             except Exception as e:
-                logger.error("Workflow generation failed: %s", e)
+                logger.error("Workflow generation failed: %s", e, exc_info=True)
                 workflow = None
+                message = "I had trouble generating the workflow. Could you describe what you need again?"
+                orchestrator.state = ConversationState.collecting_info
 
+        # ── FLOW 3: Normal conversation ──────────────────────────────
         character_state = services["character_service"].character_state
 
         return ChatResponse(
-            message=orchestrator_response.message,
-            ready=orchestrator_response.ready,
+            message=message,
+            ready=orchestrator_response.ready and workflow is not None,
             workflow=workflow,
             character_state=character_state,
             session_id=request.session_id,
+            conversation_state=orchestrator.state.value,
         )
 
     except HTTPException:
