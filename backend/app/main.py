@@ -24,8 +24,10 @@ async def lifespan(app: FastAPI):
     if settings.wandb_api_key:
         init_weave(settings.wandb_project)
     yield
-    # Cleanup: close persistent httpx clients
-    from app.api.routes import _anam_service
+    # Cleanup: close persistent httpx clients and scheduler
+    from app.api.routes import _anam_service, _scheduler
+    if _scheduler is not None:
+        _scheduler.stop()
     if _anam_service is not None:
         await _anam_service.aclose()
 
@@ -39,7 +41,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
     max_age=600,
 )

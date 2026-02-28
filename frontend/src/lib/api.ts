@@ -299,6 +299,47 @@ export async function getComposioApps(): Promise<{ apps: string[] }> {
   return apiFetch<{ apps: string[] }>("/composio/apps");
 }
 
+// ─── Workflow Scheduler ──────────────────────────────────────────────────────
+
+export interface ScheduledJob {
+  job_id: string;
+  workflow_name: string;
+  entity_id: string;
+  cron_expr: string | null;
+  interval_seconds: number | null;
+  created_at: string;
+  last_run_at: string | null;
+  last_status: string | null;
+  run_count: number;
+}
+
+export async function scheduleWorkflow(
+  workflow: WorkflowDefinition,
+  options: { cron_expr?: string; interval_seconds?: number },
+  sessionId: string = "default"
+): Promise<ScheduledJob> {
+  return apiFetch<ScheduledJob>("/workflow/schedule", {
+    method: "POST",
+    body: JSON.stringify({
+      workflow,
+      cron_expr: options.cron_expr ?? null,
+      interval_seconds: options.interval_seconds ?? null,
+      session_id: sessionId,
+    }),
+  });
+}
+
+export async function getScheduledJobs(sessionId?: string): Promise<{ schedules: ScheduledJob[] }> {
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return apiFetch<{ schedules: ScheduledJob[] }>(`/workflow/schedules${qs}`);
+}
+
+export async function cancelScheduledJob(jobId: string): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/workflow/schedule/${encodeURIComponent(jobId)}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<{ status: string }> {

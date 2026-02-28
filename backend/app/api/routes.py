@@ -28,6 +28,7 @@ from app.services.executor import WorkflowExecutor
 from app.services.orchestrator import OrchestratorAgent, OrchestratorResponse
 from app.services.anam import AnamService
 from app.services.composio_auth import ComposioAuthService
+from app.services.scheduler import WorkflowScheduler
 from app.services.voice import VoiceService
 from app.services.workflow_gen import WorkflowGenerator
 
@@ -48,6 +49,7 @@ _character_service: Optional[CharacterService] = None
 _ai_team: Optional[AITeamOrchestrator] = None
 _anam_service: Optional[AnamService] = None
 _composio_auth: Optional[ComposioAuthService] = None
+_scheduler: Optional[WorkflowScheduler] = None
 _sessions: dict[str, tuple[OrchestratorAgent, float]] = {}
 _SESSION_TTL = 3600  # 1 hour
 _MAX_SESSIONS = 1000
@@ -91,7 +93,7 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
 
 
 def _get_services():
-    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service, _composio_auth
+    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service, _composio_auth, _scheduler
 
     settings = _get_settings()
 
@@ -109,6 +111,9 @@ def _get_services():
         _anam_service = AnamService(settings)
     if _composio_auth is None:
         _composio_auth = ComposioAuthService(settings)
+    if _scheduler is None:
+        _scheduler = WorkflowScheduler(executor=_workflow_executor)
+        _scheduler.start()
 
     return {
         "workflow_generator": _workflow_generator,
@@ -118,6 +123,7 @@ def _get_services():
         "ai_team": _ai_team,
         "anam_service": _anam_service,
         "composio_auth": _composio_auth,
+        "scheduler": _scheduler,
     }
 
 
@@ -619,6 +625,68 @@ async def composio_connection_status(app_name: str, session_id: str = "default")
 
     result = await composio_auth.check_connection_status(entity_id=session_id, app_name=app_name)
     return ComposioConnectionStatus(**result)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Workflow Scheduler Endpoints
+# ──────────────────────────────────────────────────────────────────
+
+
+class ScheduleWorkflowRequest(BaseModel):
+    workflow: WorkflowDefinition
+    cron_expr: Optional[str] = Field(None, pattern=r"^(\S+ ){4}\S+$")
+    interval_seconds: Optional[int] = Field(None, ge=60, le=86400)
+    session_id: str = "default"
+
+
+@router.post("/workflow/schedule", dependencies=[Depends(_verify_api_key)])
+async def workflow_schedule(request: ScheduleWorkflowRequest):
+    """Schedule a workflow for cron or interval execution."""
+    services = _get_services()
+    scheduler: WorkflowScheduler = services["scheduler"]
+
+    if not request.cron_expr and not request.interval_seconds:
+        raise HTTPException(status_code=422, detail="Provide cron_expr or interval_seconds")
+    if request.cron_expr and request.interval_seconds:
+        raise HTTPException(status_code=422, detail="Provide only one of cron_expr or interval_seconds")
+
+    try:
+        if request.cron_expr:
+            job = scheduler.schedule_cron(
+                workflow=request.workflow,
+                cron_expr=request.cron_expr,
+                entity_id=request.session_id,
+            )
+        else:
+            job = scheduler.schedule_interval(
+                workflow=request.workflow,
+                seconds=request.interval_seconds,
+                entity_id=request.session_id,
+            )
+        return job.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.error("Scheduling failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Scheduling failed")
+
+
+@router.get("/workflow/schedules", dependencies=[Depends(_verify_api_key)])
+async def workflow_schedules(session_id: Optional[str] = None):
+    """List scheduled workflows."""
+    services = _get_services()
+    scheduler: WorkflowScheduler = services["scheduler"]
+    return {"schedules": scheduler.list_jobs(entity_id=session_id)}
+
+
+@router.delete("/workflow/schedule/{job_id}", dependencies=[Depends(_verify_api_key)])
+async def workflow_schedule_cancel(job_id: str):
+    """Cancel a scheduled workflow."""
+    services = _get_services()
+    scheduler: WorkflowScheduler = services["scheduler"]
+    if not scheduler.cancel(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "cancelled", "job_id": job_id}
 
 
 @router.get("/health", response_model=HealthResponse)

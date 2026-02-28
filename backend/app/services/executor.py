@@ -32,7 +32,28 @@ COMPOSIO_ACTION_MAP = {
     "create_calendar_event": "GOOGLECALENDAR_CREATE_EVENT",
     "list_emails": "GMAIL_LIST_EMAILS",
     "create_task": "TODOIST_CREATE_TASK",
-    "send_slack_message": "SLACK_SEND_MESSAGE",
+    "send_slack_message": "SLACK_SENDS_MESSAGE",
+}
+
+# Composio param key normalization per action
+_COMPOSIO_PARAM_MAP: dict[str, dict[str, str]] = {
+    "GMAIL_SEND_EMAIL": {
+        "to": "recipient_email",
+        "recipient": "recipient_email",
+        "subject": "subject",
+        "body": "body",
+    },
+    "GOOGLECALENDAR_CREATE_EVENT": {
+        "title": "summary",
+        "name": "summary",
+        "start": "start_datetime",
+        "end": "end_datetime",
+    },
+    "SLACK_SENDS_MESSAGE": {
+        "message": "text",
+        "body": "text",
+        "channel": "channel",
+    },
 }
 
 EXECUTION_TIMEOUT = 120.0  # 2 minutes total
@@ -158,26 +179,36 @@ class WorkflowExecutor:
         if not composio_action:
             return {"status": "error", "error": f"No Composio mapping for '{step.action}'"}
 
+        # Normalize param keys for Composio's expected format
+        normalized = self._normalize_composio_params(composio_action, params)
+
         try:
-            # Use entity-specific toolset so each user's OAuth credentials are used
-            from composio import ComposioToolSet
-            entity_toolset = ComposioToolSet(
-                api_key=self.config.composio_api_key,
+            result = await asyncio.to_thread(
+                self._composio_toolset.execute_action,
+                action=composio_action,
+                params=normalized,
                 entity_id=entity_id,
             )
-            result = await asyncio.to_thread(
-                entity_toolset.execute_action,
-                action=composio_action,
-                params=params,
-            )
+            # Composio returns dict with "successfull" (sic), "data", "error"
+            if isinstance(result, dict) and result.get("error"):
+                err_msg = str(result["error"])[:500]
+                if "not connected" in err_msg.lower() or "no connected account" in err_msg.lower():
+                    return {
+                        "status": "error",
+                        "error": f"Service not connected. Please connect {step.action.split('_')[0]} via the Services panel.",
+                        "needs_connection": True,
+                        "app": step.action,
+                    }
+                return {"status": "error", "error": f"Composio: {err_msg}"}
+
             return {
                 "status": "success",
                 "action": step.action,
                 "composio_action": composio_action,
-                "result": result,
+                "result": result.get("data") if isinstance(result, dict) else result,
             }
         except Exception:
-            logger.error("Composio action '%s' failed", step.action, exc_info=True)
+            logger.error("Composio action '%s' failed for entity '%s'", step.action, entity_id, exc_info=True)
             return {"status": "error", "error": f"Composio action '{step.action}' failed"}
 
     async def _execute_api_call(self, step: WorkflowStep, context: dict) -> dict:
@@ -391,6 +422,18 @@ class WorkflowExecutor:
             return [self._interpolate(item, context) for item in value]
 
         return value
+
+    @staticmethod
+    def _normalize_composio_params(composio_action: str, params: dict) -> dict:
+        """Map our param names to Composio's expected keys."""
+        mapping = _COMPOSIO_PARAM_MAP.get(composio_action)
+        if not mapping:
+            return params
+        normalized: dict[str, Any] = {}
+        for k, v in params.items():
+            target_key = mapping.get(k, k)
+            normalized[target_key] = v
+        return normalized
 
     def _resolve_path(self, keys: list[str], context: dict) -> Any:
         current = context.get("previous_results", {})

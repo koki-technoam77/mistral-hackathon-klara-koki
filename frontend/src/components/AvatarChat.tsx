@@ -277,6 +277,39 @@ export default function AvatarChat({
     }
   };
 
+  // ─── Schedule workflow ────────────────────────────────────────────────────
+
+  const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+
+  const handleScheduleWorkflow = async (cronExpr: string) => {
+    const workflow = currentWorkflow;
+    if (!workflow) return;
+    setShowScheduleMenu(false);
+
+    try {
+      const job = await api.scheduleWorkflow(
+        workflow,
+        { cron_expr: cronExpr },
+        sessionIdRef.current ?? "default"
+      );
+      onNewMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `Workflow "${workflow.name}" scheduled! (${cronExpr}) — Job ID: ${job.job_id.slice(0, 8)}`,
+        timestamp: new Date(),
+      });
+      playNotificationSound();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onNewMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `Scheduling failed: ${msg}`,
+        timestamp: new Date(),
+      });
+    }
+  };
+
   // ─── Status config ────────────────────────────────────────────────────────
 
   const statusConfig = {
@@ -520,9 +553,46 @@ export default function AvatarChat({
                   Running...
                 </>
               ) : (
-                <>▶ Run Workflow</>
+                <>▶ Run</>
               )}
             </button>
+
+            {/* Schedule dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowScheduleMenu((v) => !v)}
+                disabled={isExecuting}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+              >
+                ⏰ Schedule
+              </button>
+              <AnimatePresence>
+                {showScheduleMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                    className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                  >
+                    {[
+                      { label: "Every 5 min", cron: "*/5 * * * *" },
+                      { label: "Every hour", cron: "0 * * * *" },
+                      { label: "Daily 9 AM", cron: "0 9 * * *" },
+                      { label: "Weekdays 9 AM", cron: "0 9 * * 1-5" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.cron}
+                        onClick={() => handleScheduleWorkflow(opt.cron)}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+                      >
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="text-gray-500 ml-1.5">({opt.cron})</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
