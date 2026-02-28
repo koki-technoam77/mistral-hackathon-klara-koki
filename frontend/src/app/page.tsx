@@ -21,17 +21,17 @@ const ONBOARDING_STEPS = [
   {
     icon: "💬",
     title: "Tell me what to automate",
-    description: "Describe it in plain English — like asking a friend.",
+    description: "Describe it in plain English or just talk to me!",
   },
   {
     icon: "✨",
-    title: "I'll build a workflow",
-    description: "I'll design the steps automatically. No coding needed.",
+    title: "I'll build the workflow",
+    description: "I'll ask a few questions, then design the steps for you.",
   },
   {
-    icon: "▶",
-    title: "Run it with one click",
-    description: "Review your workflow and launch it whenever you're ready.",
+    icon: "🚀",
+    title: "Say 'Run it' and you're done",
+    description: "I'll execute everything and tell you what happened.",
   },
 ];
 
@@ -186,7 +186,7 @@ export default function Home() {
         id: crypto.randomUUID(),
         role: "assistant",
         content:
-          "Hi! I'm Flow-chan, your automation assistant. Tell me what you'd like to automate — I'll build a workflow for you in seconds.",
+          "Hi! I'm Flow-chan, your automation buddy! Just tell me what you'd like to automate and I'll take care of everything. You can type or hold the mic button and talk to me!",
         timestamp: new Date(),
       },
     ]);

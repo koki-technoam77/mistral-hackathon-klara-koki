@@ -80,6 +80,17 @@ export interface ChatResponse {
   workflow?: WorkflowDefinition;
   character_state: CharacterState;
   session_id: string;
+  conversation_state?: string;
+  execution_result?: {
+    status: WorkflowExecutionStatus;
+    step_results: Record<string, unknown>;
+    xp_result: {
+      xp_earned: number;
+      level_up: boolean;
+      new_level?: number;
+      skill_updates?: Record<string, unknown>;
+    };
+  };
 }
 
 export interface WorkflowExecuteResponse {

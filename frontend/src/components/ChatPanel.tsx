@@ -100,6 +100,23 @@ export default function ChatPanel({
         if (res.ready && res.workflow) {
           onWorkflowReady(res.workflow);
         }
+
+        // Handle conversational execution results (user said "yes" in chat)
+        if (res.execution_result && res.workflow) {
+          onWorkflowReady(res.workflow);
+          onExecutionStart();
+          onExecutionComplete({
+            execution: {
+              id: crypto.randomUUID(),
+              workflow: res.workflow,
+              status: res.execution_result.status,
+              step_results: res.execution_result.step_results as Record<string, unknown>,
+              created_at: new Date().toISOString(),
+            },
+            xp_result: res.execution_result.xp_result,
+            character_state: res.character_state,
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setChatError(msg);
@@ -107,7 +124,7 @@ export default function ChatPanel({
         setIsProcessing(false);
       }
     },
-    [isProcessing, sessionId, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing]
+    [isProcessing, sessionId, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing, onExecutionStart, onExecutionComplete]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -401,9 +418,11 @@ export default function ChatPanel({
           >
             <div className="flex-1 min-w-0">
               <p className="text-xs text-indigo-300 font-medium truncate">
-                Workflow ready: {currentWorkflow.name}
+                {currentWorkflow.name}
               </p>
-              <p className="text-xs text-gray-500">{currentWorkflow.steps.length} steps</p>
+              <p className="text-xs text-gray-500">
+                {currentWorkflow.steps.length} steps — say &quot;Run it&quot; or click the button
+              </p>
             </div>
             <button
               onClick={handleRunWorkflow}
