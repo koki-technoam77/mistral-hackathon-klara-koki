@@ -1,9 +1,7 @@
 import asyncio
-import io
 import logging
 
 from elevenlabs import ElevenLabs
-from mistralai import Mistral
 
 from app.models.character import VoiceConfig
 
@@ -76,18 +74,21 @@ def _split_text_for_tts(text: str, max_chars: int = 480) -> list[str]:
 class VoiceService:
     def __init__(self, config):
         self.config = config
-        self.mistral_client = Mistral(api_key=config.mistral_api_key)
         self.elevenlabs_client = ElevenLabs(api_key=config.elevenlabs_api_key)
+
+    def _transcribe_sync(self, audio_data: bytes) -> str:
+        """Synchronous ElevenLabs STT call — run via asyncio.to_thread."""
+        response = self.elevenlabs_client.speech_to_text.convert(
+            model_id="scribe_v1",
+            file=audio_data,
+        )
+        return response.text.strip() if response.text else ""
 
     async def transcribe(self, audio_data: bytes) -> str:
         try:
-            response = await self.mistral_client.audio.transcriptions.complete_async(
-                model="voxtral-mini-latest",
-                file={"content": io.BytesIO(audio_data), "file_name": "recording.webm"},
-            )
-            return response.text.strip()
+            return await asyncio.to_thread(self._transcribe_sync, audio_data)
         except Exception as e:
-            logger.error("Transcription error: %s", e, exc_info=True)
+            logger.error("STT error: %s", e, exc_info=True)
             return ""
 
     def _synthesize_sync(self, text: str, voice_config: VoiceConfig, output_format: str = "mp3_44100_128") -> bytes:
