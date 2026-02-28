@@ -103,8 +103,13 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
   form.append("file", audioBlob, "recording.webm");
 
   const url = `${BASE_URL}/api/voice/transcribe`;
+  const headers: Record<string, string> = {};
+  if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
   const res = await fetch(url, {
     method: "POST",
+    headers,
     body: form,
   });
 
@@ -125,9 +130,15 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
 
 export async function synthesizeVoice(text: string): Promise<Blob> {
   const url = `${BASE_URL}/api/voice/synthesize`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ text }),
   });
 
