@@ -24,6 +24,10 @@ async def lifespan(app: FastAPI):
     if settings.wandb_api_key:
         init_weave(settings.wandb_project)
     yield
+    # Cleanup: close persistent httpx clients
+    from app.api.routes import _anam_service
+    if _anam_service is not None:
+        await _anam_service.aclose()
 
 
 app = FastAPI(title="KotoFlow API", version="0.1.0", lifespan=lifespan)

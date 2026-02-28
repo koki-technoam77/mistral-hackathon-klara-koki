@@ -3,6 +3,7 @@ import type {
   CharacterState,
   WorkflowDefinition,
   WorkflowExecuteResponse,
+  AnamSessionResponse,
 } from "@/types";
 
 const BASE_URL =
@@ -150,6 +151,35 @@ export async function synthesizeVoice(text: string): Promise<Blob> {
   }
 
   return res.blob();
+}
+
+// ─── Anam Avatar ─────────────────────────────────────────────────────────────
+
+export async function getAnamSession(): Promise<AnamSessionResponse> {
+  return apiFetch<AnamSessionResponse>("/anam/session", {
+    method: "POST",
+  });
+}
+
+export async function synthesizePcmAudio(text: string): Promise<ArrayBuffer> {
+  const url = `${BASE_URL}/api/voice/synthesize-pcm`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`PCM synthesis error ${res.status}: ${res.statusText}`);
+  }
+
+  return res.arrayBuffer();
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────

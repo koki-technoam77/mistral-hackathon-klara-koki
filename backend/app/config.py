@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     ft_model_name: Optional[str] = None
     kotoflow_api_key: str = ""
 
+    # Anam AI Avatar Settings
+    anam_api_key: str = ""
+    anam_avatar_id: str = ""
+
     # Multi-AI Provider OAuth Settings
     anthropic_api_key: str = ""
     openai_api_key: str = ""
@@ -51,7 +55,7 @@ class Settings(BaseSettings):
 
     # Accept JSON array, comma-separated string, or Python list
     cors_origins: str = "http://localhost:3000,https://localhost:3000"
-    allowed_domains: str = "api.mistral.ai,api.elevenlabs.io,api.composio.dev,api.wandb.ai,api.anthropic.com,api.openai.com,generativelanguage.googleapis.com"
+    allowed_domains: str = "api.mistral.ai,api.elevenlabs.io,api.composio.dev,api.wandb.ai,api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,api.anam.ai"
 
     @field_validator("ft_model_name")
     @classmethod

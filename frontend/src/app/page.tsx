@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatPanel from "@/components/ChatPanel";
+import AvatarChat from "@/components/AvatarChat";
 import WorkflowVisualizer from "@/components/WorkflowVisualizer";
 import CharacterPanel from "@/components/CharacterPanel";
 import * as api from "@/lib/api";
@@ -108,7 +109,15 @@ function OnboardingOverlay({ onDismiss }: { onDismiss: () => void }) {
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
-function Header({ character }: { character: CharacterState | null }) {
+function Header({
+  character,
+  avatarMode,
+  onToggleMode,
+}: {
+  character: CharacterState | null;
+  avatarMode: boolean;
+  onToggleMode: () => void;
+}) {
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur shrink-0">
       <div className="flex items-center gap-3">
@@ -127,25 +136,51 @@ function Header({ character }: { character: CharacterState | null }) {
         </span>
       </div>
 
-      {/* Mini character badge */}
-      {character && (
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-full px-3 py-1"
+      <div className="flex items-center gap-3">
+        {/* Mode toggle */}
+        <button
+          onClick={onToggleMode}
+          className="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-300 hover:text-white hover:border-indigo-500 transition-colors"
         >
-          <span className="text-indigo-400 font-bold text-xs">Lv.{character.level}</span>
-          <span className="text-gray-300 text-xs">{character.name}</span>
-          <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className="xp-bar-fill h-full rounded-full"
-              style={{
-                width: `${Math.min(100, Math.round((character.xp / character.xp_to_next) * 100))}%`,
-              }}
-            />
-          </div>
-        </motion.div>
-      )}
+          {avatarMode ? (
+            <>
+              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none">
+                <rect x="2" y="3" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.2" />
+                <circle cx="8" cy="7" r="2" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+              Avatar
+            </>
+          ) : (
+            <>
+              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none">
+                <path d="M2 12 Q1 15 4 14 L5 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <rect x="2" y="2" width="12" height="9" rx="3" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+              Chat
+            </>
+          )}
+        </button>
+
+        {/* Mini character badge */}
+        {character && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-full px-3 py-1"
+          >
+            <span className="text-indigo-400 font-bold text-xs">Lv.{character.level}</span>
+            <span className="text-gray-300 text-xs">{character.name}</span>
+            <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="xp-bar-fill h-full rounded-full"
+                style={{
+                  width: `${Math.min(100, Math.round((character.xp / character.xp_to_next) * 100))}%`,
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </div>
     </header>
   );
 }
@@ -162,6 +197,7 @@ export default function Home() {
   const [xpToast, setXpToast] = useState<{ xp: number; levelUp: boolean; newLevel?: number } | null>(null);
   const [apiHealth, setApiHealth] = useState<"unknown" | "ok" | "error">("unknown");
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [avatarMode, setAvatarMode] = useState(false);
   const xpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Initial load ──────────────────────────────────────────────────────────
@@ -248,7 +284,11 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      <Header character={characterState} />
+      <Header
+        character={characterState}
+        avatarMode={avatarMode}
+        onToggleMode={() => setAvatarMode((v) => !v)}
+      />
 
       {/* API health banner */}
       <AnimatePresence>
@@ -266,26 +306,49 @@ export default function Home() {
 
       {/* Main content area */}
       <main className="flex-1 overflow-hidden grid grid-rows-[1fr_auto] gap-3 p-3">
-        {/* Top row: Chat + Workflow side by side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0 overflow-hidden">
-          <ChatPanel
-            messages={messages}
-            onNewMessage={handleNewMessage}
-            onWorkflowReady={handleWorkflowReady}
-            onCharacterUpdate={handleCharacterUpdate}
-            onExecutionStart={handleExecutionStart}
-            onExecutionComplete={handleExecutionComplete}
-            currentWorkflow={currentWorkflow}
-            isProcessing={isProcessing}
-            setIsProcessing={setIsProcessing}
-          />
+        {avatarMode ? (
+          /* ─── Avatar mode: Avatar + Workflow side by side ─── */
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,1fr)] gap-3 min-h-0 overflow-hidden">
+            <AvatarChat
+              messages={messages}
+              onNewMessage={handleNewMessage}
+              onWorkflowReady={handleWorkflowReady}
+              onCharacterUpdate={handleCharacterUpdate}
+              onExecutionStart={handleExecutionStart}
+              onExecutionComplete={handleExecutionComplete}
+              currentWorkflow={currentWorkflow}
+              isProcessing={isProcessing}
+              setIsProcessing={setIsProcessing}
+            />
 
-          <WorkflowVisualizer
-            workflow={currentWorkflow}
-            executionStatus={executionStatus}
-            stepResults={stepResults}
-          />
-        </div>
+            <WorkflowVisualizer
+              workflow={currentWorkflow}
+              executionStatus={executionStatus}
+              stepResults={stepResults}
+            />
+          </div>
+        ) : (
+          /* ─── Classic mode: Chat + Workflow side by side ─── */
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0 overflow-hidden">
+            <ChatPanel
+              messages={messages}
+              onNewMessage={handleNewMessage}
+              onWorkflowReady={handleWorkflowReady}
+              onCharacterUpdate={handleCharacterUpdate}
+              onExecutionStart={handleExecutionStart}
+              onExecutionComplete={handleExecutionComplete}
+              currentWorkflow={currentWorkflow}
+              isProcessing={isProcessing}
+              setIsProcessing={setIsProcessing}
+            />
+
+            <WorkflowVisualizer
+              workflow={currentWorkflow}
+              executionStatus={executionStatus}
+              stepResults={stepResults}
+            />
+          </div>
+        )}
 
         {/* Bottom row: Character panel */}
         <CharacterPanel character={characterState} />

@@ -24,6 +24,7 @@ from app.services.ai_team import AITeamOrchestrator
 from app.services.character import CharacterService
 from app.services.executor import WorkflowExecutor
 from app.services.orchestrator import OrchestratorAgent, OrchestratorResponse
+from app.services.anam import AnamService
 from app.services.voice import VoiceService
 from app.services.workflow_gen import WorkflowGenerator
 
@@ -42,6 +43,7 @@ _workflow_executor: Optional[WorkflowExecutor] = None
 _voice_service: Optional[VoiceService] = None
 _character_service: Optional[CharacterService] = None
 _ai_team: Optional[AITeamOrchestrator] = None
+_anam_service: Optional[AnamService] = None
 _sessions: dict[str, tuple[OrchestratorAgent, float]] = {}
 _SESSION_TTL = 3600  # 1 hour
 _MAX_SESSIONS = 1000
@@ -85,7 +87,7 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
 
 
 def _get_services():
-    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team
+    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service
 
     settings = _get_settings()
 
@@ -99,6 +101,8 @@ def _get_services():
         _character_service = CharacterService()
     if _ai_team is None:
         _ai_team = AITeamOrchestrator(settings)
+    if _anam_service is None:
+        _anam_service = AnamService(settings)
 
     return {
         "workflow_generator": _workflow_generator,
@@ -106,6 +110,7 @@ def _get_services():
         "voice_service": _voice_service,
         "character_service": _character_service,
         "ai_team": _ai_team,
+        "anam_service": _anam_service,
     }
 
 
@@ -164,6 +169,14 @@ class VoiceTranscribeResponse(BaseModel):
 
 class VoiceSynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
+
+
+class VoiceSynthesizePcmRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+class AnamSessionResponse(BaseModel):
+    session_token: str
 
 
 class HealthResponse(BaseModel):
@@ -308,6 +321,29 @@ async def voice_transcribe(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Transcription failed")
 
 
+@router.post("/anam/session", response_model=AnamSessionResponse, dependencies=[Depends(_verify_api_key)])
+async def anam_session():
+    services = _get_services()
+    anam: AnamService = services["anam_service"]
+
+    if not anam.api_key:
+        raise HTTPException(status_code=503, detail="Avatar service not configured")
+    if not anam.avatar_id:
+        raise HTTPException(status_code=503, detail="Avatar ID not configured")
+
+    try:
+        result = await anam.create_session()
+        token = result.get("sessionToken", "")
+        if not token:
+            raise HTTPException(status_code=502, detail="Empty session token received")
+        return AnamSessionResponse(session_token=token)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Anam session error: %s", e, exc_info=True)
+        raise HTTPException(status_code=502, detail="Failed to create avatar session")
+
+
 @router.post("/voice/synthesize", dependencies=[Depends(_verify_api_key)])
 async def voice_synthesize(request: VoiceSynthesizeRequest):
     services = _get_services()
@@ -331,6 +367,31 @@ async def voice_synthesize(request: VoiceSynthesizeRequest):
         raise
     except Exception as e:
         logger.error("Synthesis error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Voice synthesis failed")
+
+
+@router.post("/voice/synthesize-pcm", dependencies=[Depends(_verify_api_key)])
+async def voice_synthesize_pcm(request: VoiceSynthesizePcmRequest):
+    services = _get_services()
+    if not services["voice_service"]:
+        raise HTTPException(status_code=500, detail="Service unavailable")
+
+    try:
+        voice_config = services["character_service"].character_state.voice_config
+        audio_bytes = await services["voice_service"].synthesize_pcm_chunked(request.text, voice_config)
+
+        if not audio_bytes:
+            raise HTTPException(status_code=422, detail="PCM synthesis returned empty audio")
+
+        return StreamingResponse(
+            iter([audio_bytes]),
+            media_type="audio/L16;rate=16000;channels=1",
+            headers={"Content-Disposition": "attachment; filename=response.pcm"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("PCM synthesis error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Voice synthesis failed")
 
 

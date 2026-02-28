@@ -101,3 +101,9 @@ export interface Message {
   content: string;
   timestamp: Date;
 }
+
+// ─── Anam Avatar types ──────────────────────────────────────────────────────
+
+export interface AnamSessionResponse {
+  session_token: string;
+}
