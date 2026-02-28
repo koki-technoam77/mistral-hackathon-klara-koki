@@ -136,11 +136,22 @@ class WorkflowExecutor:
         params = self._interpolate_params(step.params, context)
 
         if not self._composio_toolset:
+            # Demo-friendly mock: show what would be executed
+            demo_detail = ""
+            if step.action == "send_email":
+                to = params.get("to", params.get("recipient", "N/A"))
+                subject = params.get("subject", "N/A")
+                body = str(params.get("body", ""))[:200]
+                demo_detail = f" | To: {to}, Subject: {subject}, Body preview: {body}..."
+            elif step.action == "send_slack_message":
+                channel = params.get("channel", "N/A")
+                demo_detail = f" | Channel: {channel}"
+            logger.info("Demo mock: %s%s", step.action, demo_detail)
             return {
                 "status": "success",
                 "action": step.action,
                 "params": params,
-                "result": f"Composio action '{step.action}' executed (mock — no SDK)",
+                "result": f"[Demo] {step.action} completed successfully{demo_detail}",
             }
 
         composio_action = COMPOSIO_ACTION_MAP.get(step.action)

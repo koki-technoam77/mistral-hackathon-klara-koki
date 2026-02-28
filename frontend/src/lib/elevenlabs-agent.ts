@@ -91,6 +91,19 @@ function stopMicrophone(): void {
   }
 }
 
+const CONNECTION_TIMEOUT_MS = 30_000;
+const MAX_TRANSCRIPT_LENGTH = 4000;
+const VALID_MESSAGE_TYPES = new Set([
+  "audio", "agent_response", "user_transcript",
+  "interruption", "ping", "conversation_initiation_metadata",
+]);
+
+function sanitizeTranscript(text: string): string {
+  if (!text || typeof text !== "string") return "";
+  // Strip control characters, limit length
+  return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "").slice(0, MAX_TRANSCRIPT_LENGTH);
+}
+
 export async function connectElevenLabs(
   agentId: string,
   callbacks: ElevenLabsCallbacks
@@ -98,9 +111,16 @@ export async function connectElevenLabs(
   const url = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`;
 
   return new Promise((resolve, reject) => {
+    // Connection timeout
+    const timeout = setTimeout(() => {
+      ws?.close();
+      reject(new Error("WebSocket connection timeout (30s)"));
+    }, CONNECTION_TIMEOUT_MS);
+
     ws = new WebSocket(url);
 
     ws.onopen = async () => {
+      clearTimeout(timeout);
       console.log("[ElevenLabs] WebSocket connected");
       try {
         await setupMicrophone((base64) => {
@@ -120,6 +140,7 @@ export async function connectElevenLabs(
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string);
+        if (!data.type || !VALID_MESSAGE_TYPES.has(data.type)) return;
 
         switch (data.type) {
           case "audio":
@@ -130,13 +151,15 @@ export async function connectElevenLabs(
 
           case "agent_response":
             if (data.agent_response_event?.agent_response) {
-              callbacks.onAgentResponse?.(data.agent_response_event.agent_response);
+              const text = sanitizeTranscript(data.agent_response_event.agent_response);
+              if (text) callbacks.onAgentResponse?.(text);
             }
             break;
 
           case "user_transcript":
             if (data.user_transcription_event?.user_transcript) {
-              callbacks.onUserTranscript?.(data.user_transcription_event.user_transcript);
+              const text = sanitizeTranscript(data.user_transcription_event.user_transcript);
+              if (text) callbacks.onUserTranscript?.(text);
             }
             break;
 
@@ -153,24 +176,22 @@ export async function connectElevenLabs(
             break;
 
           case "conversation_initiation_metadata":
-            console.log("[ElevenLabs] Conversation initiated", data);
+            console.log("[ElevenLabs] Conversation initiated");
             break;
-
-          default:
-            console.log("[ElevenLabs] Unknown message type:", data.type);
         }
       } catch {
         // Ignore non-JSON messages
       }
     };
 
-    ws.onerror = (event) => {
-      console.error("[ElevenLabs] WebSocket error:", event);
+    ws.onerror = () => {
+      clearTimeout(timeout);
       callbacks.onError?.(new Error("WebSocket connection error"));
     };
 
     ws.onclose = (event) => {
-      console.log("[ElevenLabs] WebSocket closed:", event.code, event.reason);
+      clearTimeout(timeout);
+      console.log("[ElevenLabs] WebSocket closed:", event.code);
       stopMicrophone();
       callbacks.onDisconnect?.();
     };

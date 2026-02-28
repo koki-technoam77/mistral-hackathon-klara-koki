@@ -30,6 +30,26 @@ type ConversationStatus =
   | "error"
   | "disconnected";
 
+/** Play a short notification chime via Web Audio API */
+function playNotificationSound(): void {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+    osc.onended = () => ctx.close();
+  } catch {
+    // non-critical
+  }
+}
+
 export default function AvatarChat({
   messages,
   onNewMessage,
@@ -48,11 +68,14 @@ export default function AvatarChat({
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [workflowReady, setWorkflowReady] = useState(false);
+
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
   const initStartedRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
+  const lastChatCallRef = useRef(0); // Rate limiting: min 2s between chat calls
 
   useEffect(() => {
     mountedRef.current = true;
@@ -114,8 +137,10 @@ export default function AvatarChat({
             content: text,
             timestamp: new Date(),
           });
-          // Send user transcript to our backend orchestrator for
-          // workflow detection, generation, and character XP updates
+          // Rate-limited: send transcript to backend for workflow detection
+          const now = Date.now();
+          if (now - lastChatCallRef.current < 2000) return; // Min 2s between calls
+          lastChatCallRef.current = now;
           api
             .chat(text, sessionIdRef.current ?? undefined)
             .then((res) => {
@@ -124,6 +149,19 @@ export default function AvatarChat({
               onCharacterUpdate(res.character_state);
               if (res.ready && res.workflow) {
                 onWorkflowReady(res.workflow);
+                setWorkflowReady(true);
+                playNotificationSound();
+                // Add visible notification message to transcript
+                onNewMessage({
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: `Workflow "${res.workflow.name}" generated! Tap "Run Workflow" below to execute it.`,
+                  timestamp: new Date(),
+                });
+                // Auto-dismiss after 5s
+                setTimeout(() => {
+                  if (mountedRef.current) setWorkflowReady(false);
+                }, 5000);
               }
             })
             .catch((err) => {
@@ -455,7 +493,9 @@ export default function AvatarChat({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="px-4 py-2.5 border-t border-gray-700 bg-indigo-950/30 flex items-center gap-3 shrink-0"
+            className={`px-4 py-2.5 border-t border-gray-700 flex items-center gap-3 shrink-0 ${
+              workflowReady ? "bg-emerald-950/40 border-emerald-700" : "bg-indigo-950/30"
+            }`}
           >
             <div className="flex-1 min-w-0">
               <p className="text-xs text-indigo-300 font-medium truncate">
