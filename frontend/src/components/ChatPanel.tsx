@@ -47,6 +47,7 @@ export default function ChatPanel({
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -80,7 +81,8 @@ export default function ChatPanel({
       setIsProcessing(true);
 
       try {
-        const res = await api.chat(text.trim());
+        const res = await api.chat(text.trim(), sessionIdRef.current ?? undefined);
+        if (res.session_id) sessionIdRef.current = res.session_id;
 
         const assistantMsg: Message = {
           id: crypto.randomUUID(),

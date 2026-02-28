@@ -33,11 +33,18 @@ export async function initAnamAvatar(
   await client.streamToVideoElement(videoElementId);
 
   // Create audio input stream after connection is established
-  const audioInputStream = client.createAgentAudioInputStream({
-    encoding: "pcm_s16le",
-    sampleRate: 16000,
-    channels: 1,
-  });
+  let audioInputStream;
+  try {
+    audioInputStream = client.createAgentAudioInputStream({
+      encoding: "pcm_s16le",
+      sampleRate: 16000,
+      channels: 1,
+    });
+  } catch (err) {
+    // Clean up WebRTC connection if audio stream setup fails
+    try { client.stopStreaming(); } catch { /* ignore */ }
+    throw err;
+  }
 
   return {
     sendPcmAudio: (pcmArrayBuffer: ArrayBuffer) => {

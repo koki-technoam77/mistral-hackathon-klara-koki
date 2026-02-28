@@ -46,6 +46,15 @@ export default function AvatarChat({
   const streamRef = useRef<MediaStream | null>(null);
   const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
+  const mountedRef = useRef(true);
+
+  // Track mounted state to prevent post-unmount setState
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Keep avatarStatusRef in sync with avatarStatus state
   useEffect(() => {
@@ -121,7 +130,8 @@ export default function AvatarChat({
 
       try {
         // 1. Send to orchestrator
-        const res = await api.chat(text.trim());
+        const res = await api.chat(text.trim(), sessionIdRef.current ?? undefined);
+        if (res.session_id) sessionIdRef.current = res.session_id;
 
         const assistantMsg: Message = {
           id: crypto.randomUUID(),
@@ -152,7 +162,9 @@ export default function AvatarChat({
             const wordCount = res.message.split(/\s+/).length;
             const duration = Math.max(1000, wordCount * 100);
             if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-            speakingTimerRef.current = setTimeout(() => setIsSpeaking(false), duration);
+            speakingTimerRef.current = setTimeout(() => {
+              if (mountedRef.current) setIsSpeaking(false);
+            }, duration);
           }
         }
       } catch (err) {
@@ -164,6 +176,11 @@ export default function AvatarChat({
     },
     [isProcessing, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing]
   );
+
+  // Keep sendMessageRef in sync so onstop closure is never stale
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
 
   // ─── Text input handlers ───────────────────────────────────────────────────
 
@@ -208,10 +225,11 @@ export default function AvatarChat({
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0) return; // Guard: instant tap produces empty blob
         try {
           const text = await api.transcribeAudio(blob);
-          if (text) {
-            await sendMessage(text);
+          if (text && sendMessageRef.current) {
+            await sendMessageRef.current(text);
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -226,7 +244,7 @@ export default function AvatarChat({
       const msg = err instanceof Error ? err.message : String(err);
       setChatError(`Mic error: ${msg}`);
     }
-  }, [isProcessing, sendMessage, setIsProcessing]);
+  }, [isProcessing]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {
@@ -238,12 +256,13 @@ export default function AvatarChat({
   // ─── Workflow execution ────────────────────────────────────────────────────
 
   const handleRunWorkflow = async () => {
-    if (!currentWorkflow || isExecuting) return;
+    const workflow = currentWorkflow; // Snapshot to prevent null during async
+    if (!workflow || isExecuting) return;
     setIsExecuting(true);
     onExecutionStart();
 
     try {
-      const result = await api.executeWorkflow(currentWorkflow);
+      const result = await api.executeWorkflow(workflow);
       onExecutionComplete(result);
       onCharacterUpdate(result.character_state);
 
@@ -258,7 +277,7 @@ export default function AvatarChat({
       onNewMessage(xpMsg);
 
       // Have avatar speak the result
-      if (avatarRef.current && avatarStatus === "connected") {
+      if (avatarRef.current && avatarStatusRef.current === "connected") {
         try {
           const pcm = await api.synthesizePcmAudio(xpMsg.content);
           if (pcm.byteLength > 0) {
@@ -274,7 +293,7 @@ export default function AvatarChat({
       onExecutionComplete({
         execution: {
           id: crypto.randomUUID(),
-          workflow: currentWorkflow,
+          workflow,
           status: "failed" as const,
           step_results: {},
           created_at: new Date().toISOString(),

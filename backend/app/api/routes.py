@@ -171,6 +171,10 @@ class VoiceSynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
 
 
+class VoiceSynthesizePcmRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
 class AnamSessionResponse(BaseModel):
     session_token: str
 
@@ -320,6 +324,8 @@ async def anam_session():
 
     if not anam.api_key:
         raise HTTPException(status_code=503, detail="Avatar service not configured")
+    if not anam.avatar_id:
+        raise HTTPException(status_code=503, detail="Avatar ID not configured")
 
     try:
         result = await anam.create_session()
@@ -327,6 +333,8 @@ async def anam_session():
         if not token:
             raise HTTPException(status_code=502, detail="Empty session token received")
         return AnamSessionResponse(session_token=token)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Anam session error: %s", e, exc_info=True)
         raise HTTPException(status_code=502, detail="Failed to create avatar session")
@@ -359,14 +367,14 @@ async def voice_synthesize(request: VoiceSynthesizeRequest):
 
 
 @router.post("/voice/synthesize-pcm", dependencies=[Depends(_verify_api_key)])
-async def voice_synthesize_pcm(request: VoiceSynthesizeRequest):
+async def voice_synthesize_pcm(request: VoiceSynthesizePcmRequest):
     services = _get_services()
     if not services["voice_service"]:
         raise HTTPException(status_code=500, detail="Service unavailable")
 
     try:
         voice_config = services["character_service"].character_state.voice_config
-        audio_bytes = await services["voice_service"].synthesize_pcm(request.text, voice_config)
+        audio_bytes = await services["voice_service"].synthesize_pcm_chunked(request.text, voice_config)
 
         if not audio_bytes:
             raise HTTPException(status_code=422, detail="PCM synthesis returned empty audio")

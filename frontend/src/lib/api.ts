@@ -49,10 +49,12 @@ async function apiFetch<T>(
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
-export async function chat(message: string): Promise<ChatResponse> {
+export async function chat(message: string, sessionId?: string): Promise<ChatResponse> {
+  const payload: Record<string, string> = { message };
+  if (sessionId) payload.session_id = sessionId;
   return apiFetch<ChatResponse>("/chat", {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(payload),
   });
 }
 

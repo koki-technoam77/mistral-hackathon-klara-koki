@@ -216,9 +216,6 @@ export default function Home() {
       .then(() => setApiHealth("ok"))
       .catch(() => setApiHealth("error"));
 
-    // Check if avatar mode is available
-    api.getAnamSession().then(() => setAvatarMode(true)).catch(() => null);
-
     // Welcome message
     setMessages([
       {
