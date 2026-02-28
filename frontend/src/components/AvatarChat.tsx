@@ -5,6 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { Message, WorkflowDefinition, CharacterState } from "@/types";
 import * as api from "@/lib/api";
 import { initAnamAvatar, type AnamAvatarHandle } from "@/lib/anam";
+import {
+  connectElevenLabs,
+  stopElevenLabs,
+  isElevenLabsConnected,
+} from "@/lib/elevenlabs-agent";
 
 interface Props {
   messages: Message[];
@@ -18,28 +23,12 @@ interface Props {
   setIsProcessing: (v: boolean) => void;
 }
 
-type AvatarStatus = "disconnected" | "connecting" | "connected" | "error";
-
-/** Play raw PCM 16-bit 16kHz mono audio through browser speakers */
-function playPcmAudio(pcmBuffer: ArrayBuffer): void {
-  try {
-    const ctx = new AudioContext({ sampleRate: 16000 });
-    const int16 = new Int16Array(pcmBuffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768;
-    }
-    const audioBuffer = ctx.createBuffer(1, float32.length, 16000);
-    audioBuffer.getChannelData(0).set(float32);
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    source.start();
-    source.onended = () => ctx.close();
-  } catch {
-    // non-critical
-  }
-}
+type ConversationStatus =
+  | "initializing"
+  | "connecting"
+  | "active"
+  | "error"
+  | "disconnected";
 
 export default function AvatarChat({
   messages,
@@ -52,268 +41,158 @@ export default function AvatarChat({
   isProcessing,
   setIsProcessing,
 }: Props) {
-  const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>("disconnected");
-  const [isRecording, setIsRecording] = useState(false);
+  const [status, setStatus] = useState<ConversationStatus>("initializing");
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [inputText, setInputText] = useState("");
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [avatarError, setAvatarError] = useState<string | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
   const [showTranscript, setShowTranscript] = useState(true);
   const [levelUpFlash, setLevelUpFlash] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
-  const avatarStatusRef = useRef<AvatarStatus>("disconnected");
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
   const mountedRef = useRef(true);
+  const initStartedRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
 
-  // Track mounted state to prevent post-unmount setState
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
-
-  // Keep avatarStatusRef in sync with avatarStatus state
-  useEffect(() => {
-    avatarStatusRef.current = avatarStatus;
-  }, [avatarStatus]);
 
   // Auto-scroll transcript
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Unmute video after user interaction (autoplay policy)
-  const tryUnmuteVideo = useCallback(() => {
-    const video = videoRef.current;
-    if (video && video.muted) {
-      video.muted = false;
-      video.play().catch(() => { /* autoplay blocked, will retry on next interaction */ });
-    }
-  }, []);
+  // ─── Start the full pipeline: Anam avatar + ElevenLabs Agent ───────────────
 
-  // Initialize Anam avatar
-  const initAvatar = useCallback(async () => {
-    setAvatarStatus("connecting");
-    setAvatarError(null);
+  const startConversation = useCallback(async () => {
+    if (initStartedRef.current) return;
+    initStartedRef.current = true;
+    setStatus("connecting");
+    setError(null);
+
     try {
-      const { session_token } = await api.getAnamSession();
+      // 1. Get session config from backend (Anam token + ElevenLabs agent ID)
+      const config = await api.getAnamSession();
       if (!mountedRef.current) return;
 
-      const handle = await initAnamAvatar(session_token, "anam-avatar-video");
+      // 2. Initialize Anam avatar
+      console.log("[Avatar] Initializing Anam avatar...");
+      const avatar = await initAnamAvatar(
+        config.session_token,
+        "anam-avatar-video"
+      );
       if (!mountedRef.current) {
-        handle.disconnect();
+        avatar.disconnect();
         return;
       }
+      avatarRef.current = avatar;
+      console.log("[Avatar] Anam avatar connected");
 
-      avatarRef.current = handle;
-      setAvatarStatus("connected");
-
-      // Ensure video is playing after stream is connected
-      const video = videoRef.current;
-      if (video) {
-        video.play().catch(() => { /* will be played on user interaction */ });
-      }
+      // 3. Connect ElevenLabs Agent WebSocket
+      console.log("[Avatar] Connecting ElevenLabs Agent...");
+      await connectElevenLabs(config.elevenlabs_agent_id, {
+        onReady: () => {
+          console.log("[Avatar] ElevenLabs ready — conversation active");
+          if (mountedRef.current) {
+            setStatus("active");
+          }
+        },
+        onAudio: (audioBase64) => {
+          // Forward agent audio to Anam for lip-sync
+          avatarRef.current?.sendAudioChunk(audioBase64);
+          if (mountedRef.current) setIsSpeaking(true);
+        },
+        onUserTranscript: (text) => {
+          if (!mountedRef.current) return;
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "user",
+            content: text,
+            timestamp: new Date(),
+          });
+          // Send user transcript to our backend orchestrator for
+          // workflow detection, generation, and character XP updates
+          api
+            .chat(text, sessionIdRef.current ?? undefined)
+            .then((res) => {
+              if (!mountedRef.current) return;
+              if (res.session_id) sessionIdRef.current = res.session_id;
+              onCharacterUpdate(res.character_state);
+              if (res.ready && res.workflow) {
+                onWorkflowReady(res.workflow);
+              }
+            })
+            .catch((err) => {
+              console.warn("[Avatar] Backend chat error (non-blocking):", err);
+            });
+        },
+        onAgentResponse: (text) => {
+          // End the Anam audio sequence when agent finishes speaking
+          avatarRef.current?.endSequence();
+          if (!mountedRef.current) return;
+          setIsSpeaking(false);
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: text,
+            timestamp: new Date(),
+          });
+        },
+        onInterrupt: () => {
+          avatarRef.current?.interruptPersona();
+          avatarRef.current?.endSequence();
+          if (mountedRef.current) setIsSpeaking(false);
+        },
+        onDisconnect: () => {
+          if (mountedRef.current) setStatus("disconnected");
+        },
+        onError: (err) => {
+          console.error("[Avatar] ElevenLabs error:", err);
+          if (mountedRef.current) {
+            setStatus("error");
+            setError(err.message);
+          }
+        },
+      });
     } catch (err) {
+      console.error("[Avatar] Init error:", err);
       if (mountedRef.current) {
-        const detail = err instanceof Error ? err.message : String(err);
-        console.error("Anam init error:", detail, err);
-        setAvatarError(detail);
-        setAvatarStatus("error");
+        setStatus("error");
+        setError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, []);
+  }, [onNewMessage, onWorkflowReady, onCharacterUpdate]);
 
-  // Auto-init on mount
+  // Auto-start on mount
   useEffect(() => {
-    initAvatar();
+    startConversation();
     return () => {
+      stopElevenLabs();
       avatarRef.current?.disconnect();
       avatarRef.current = null;
     };
-  }, [initAvatar]);
+  }, [startConversation]);
 
-  // Cleanup mic on unmount
-  useEffect(() => {
-    return () => {
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-    };
-  }, []);
+  // ─── Retry connection ──────────────────────────────────────────────────────
 
-  // ─── Send message and get avatar response ──────────────────────────────────
-
-  const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim() || isProcessing) return;
-      setChatError(null);
-
-      const userMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: text.trim(),
-        timestamp: new Date(),
-      };
-      onNewMessage(userMsg);
-      setIsProcessing(true);
-
-      try {
-        // 1. Send to orchestrator
-        const res = await api.chat(text.trim(), sessionIdRef.current ?? undefined);
-        if (res.session_id) sessionIdRef.current = res.session_id;
-
-        const assistantMsg: Message = {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: res.message,
-          timestamp: new Date(),
-        };
-        onNewMessage(assistantMsg);
-        onCharacterUpdate(res.character_state);
-
-        if (res.ready && res.workflow) {
-          onWorkflowReady(res.workflow);
-        }
-
-        // 2. Synthesize and play audio + send to avatar for lip-sync
-        if (res.message) {
-          try {
-            setIsSpeaking(true);
-            const pcmAudio = await api.synthesizePcmAudio(res.message);
-            if (pcmAudio.byteLength > 0) {
-              // Play audio through browser speakers
-              playPcmAudio(pcmAudio);
-              // Send to avatar for lip-sync (if connected)
-              if (avatarRef.current && avatarStatusRef.current === "connected") {
-                avatarRef.current.sendPcmAudio(pcmAudio);
-                avatarRef.current.endSequence();
-              }
-            }
-          } catch (err) {
-            console.error("Audio error:", err);
-          } finally {
-            const wordCount = res.message.split(/\s+/).length;
-            const duration = Math.max(1500, wordCount * 120);
-            if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-            speakingTimerRef.current = setTimeout(() => {
-              if (mountedRef.current) setIsSpeaking(false);
-            }, duration);
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setChatError(msg);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [isProcessing, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing]
-  );
-
-  // Keep sendMessageRef in sync so onstop closure is never stale
-  useEffect(() => {
-    sendMessageRef.current = sendMessage;
-  }, [sendMessage]);
-
-  // ─── Text input handlers ───────────────────────────────────────────────────
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    tryUnmuteVideo();
-    const text = inputText.trim();
-    if (!text) return;
-    setInputText("");
-    sendMessage(text);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      const text = inputText.trim();
-      if (!text) return;
-      setInputText("");
-      sendMessage(text);
-    }
-  };
-
-  // ─── Voice recording ──────────────────────────────────────────────────────
-
-  const startRecording = useCallback(async () => {
-    if (isProcessing || isRecording) return;
-    setChatError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!mountedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
-      // User granted mic permission = user gesture → unmute video for audio playback
-      tryUnmuteVideo();
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm",
-      });
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (blob.size === 0) return;
-        try {
-          const text = await api.transcribeAudio(blob);
-          if (text && sendMessageRef.current) {
-            await sendMessageRef.current(text);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setChatError(`Transcription failed: ${msg}`);
-        }
-      };
-
-      recorder.start(200);
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setChatError(`Mic error: ${msg}`);
-    }
-  }, [isProcessing, isRecording, tryUnmuteVideo]);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-  }, []);
-
-  // Auto-start recording when avatar is connected and idle
-  useEffect(() => {
-    if (avatarStatus === "connected" && !isProcessing && !isSpeaking && !isRecording) {
-      const timer = setTimeout(() => {
-        if (mountedRef.current) startRecording();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [avatarStatus, isProcessing, isSpeaking, isRecording, startRecording]);
+  const handleRetry = useCallback(() => {
+    stopElevenLabs();
+    avatarRef.current?.disconnect();
+    avatarRef.current = null;
+    initStartedRef.current = false;
+    setStatus("initializing");
+    setError(null);
+    startConversation();
+  }, [startConversation]);
 
   // ─── Workflow execution ────────────────────────────────────────────────────
 
   const handleRunWorkflow = async () => {
-    const workflow = currentWorkflow; // Snapshot to prevent null during async
+    const workflow = currentWorkflow;
     if (!workflow || isExecuting) return;
     setIsExecuting(true);
     onExecutionStart();
@@ -328,39 +207,14 @@ export default function AvatarChat({
         ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
         : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
 
-      const xpMsg: Message = {
+      onNewMessage({
         id: crypto.randomUUID(),
         role: "assistant",
         content: xpContent,
         timestamp: new Date(),
-      };
-      onNewMessage(xpMsg);
+      });
 
-      // Level-up flash effect
-      if (didLevelUp) {
-        setLevelUpFlash(true);
-      }
-
-      // Speak the result
-      try {
-        setIsSpeaking(true);
-        const pcm = await api.synthesizePcmAudio(xpContent);
-        if (pcm.byteLength > 0) {
-          playPcmAudio(pcm);
-          if (avatarRef.current && avatarStatusRef.current === "connected") {
-            avatarRef.current.sendPcmAudio(pcm);
-            avatarRef.current.endSequence();
-          }
-        }
-        const wordCount = xpContent.split(/\s+/).length;
-        const duration = Math.max(1500, wordCount * 120);
-        if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-        speakingTimerRef.current = setTimeout(() => {
-          if (mountedRef.current) setIsSpeaking(false);
-        }, duration);
-      } catch {
-        // non-critical
-      }
+      if (didLevelUp) setLevelUpFlash(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onExecutionComplete({
@@ -374,42 +228,41 @@ export default function AvatarChat({
         xp_result: { xp_earned: 0, level_up: false },
         character_state: null as unknown as CharacterState,
       });
-      const errMsg: Message = {
+      onNewMessage({
         id: crypto.randomUUID(),
         role: "assistant",
         content: `Execution error: ${msg}`,
         timestamp: new Date(),
-      };
-      onNewMessage(errMsg);
+      });
     } finally {
       setIsExecuting(false);
     }
   };
 
-  // ─── Status indicator ─────────────────────────────────────────────────────
+  // ─── Status config ────────────────────────────────────────────────────────
 
   const statusConfig = {
-    disconnected: { color: "bg-gray-500", label: "Disconnected" },
+    initializing: { color: "bg-gray-500", label: "Initializing..." },
     connecting: { color: "bg-yellow-500 animate-pulse", label: "Connecting..." },
-    connected: { color: "bg-emerald-500", label: "Avatar Active" },
+    active: { color: "bg-emerald-500", label: "Conversation Active" },
     error: { color: "bg-red-500", label: "Connection Error" },
+    disconnected: { color: "bg-gray-500", label: "Disconnected" },
   };
-  const status = statusConfig[avatarStatus];
+  const statusInfo = statusConfig[status];
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full min-h-[400px] overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
       {/* Avatar video area */}
-      <div className="relative flex-1 min-h-[300px] bg-gradient-to-b from-gray-900 to-gray-950">
-        {/* Video element — starts muted for autoplay, unmuted after user interaction */}
+      <div className="relative flex-1 min-h-0 bg-gradient-to-b from-gray-900 to-gray-950">
+        {/* Video element */}
         <video
-          ref={videoRef}
           id="anam-avatar-video"
           autoPlay
           playsInline
-          muted
-          className="w-full h-full object-cover absolute inset-0 z-0"
+          muted={false}
+          className="w-full h-full object-cover absolute inset-0"
           style={{ minHeight: "300px", background: "#000" }}
         />
 
@@ -426,10 +279,10 @@ export default function AvatarChat({
           )}
         </AnimatePresence>
 
-        {/* Connecting overlay */}
-        {avatarStatus !== "connected" && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gray-950/80 backdrop-blur-sm">
-            {avatarStatus === "connecting" && (
+        {/* Connecting / Error overlay */}
+        {status !== "active" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950/80 backdrop-blur-sm z-20">
+            {(status === "initializing" || status === "connecting") && (
               <motion.div
                 animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
                 transition={{ duration: 2, repeat: Infinity }}
@@ -441,34 +294,42 @@ export default function AvatarChat({
                 </svg>
               </motion.div>
             )}
-            {avatarStatus === "error" && (
+            {status === "connecting" && (
+              <p className="text-indigo-300 text-sm font-medium">
+                Connecting avatar and voice agent...
+              </p>
+            )}
+            {status === "initializing" && (
+              <p className="text-gray-500 text-sm">Initializing...</p>
+            )}
+            {(status === "error" || status === "disconnected") && (
               <div className="text-center px-6">
                 <div className="w-16 h-16 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center mx-auto mb-3">
                   <span className="text-2xl">!</span>
                 </div>
-                <p className="text-red-400 text-sm font-medium">Avatar connection failed</p>
-                {avatarError && (
-                  <p className="text-red-400/70 text-xs mt-1 max-w-xs mx-auto break-words">{avatarError}</p>
+                <p className="text-red-400 text-sm font-medium">
+                  {status === "error" ? "Connection failed" : "Disconnected"}
+                </p>
+                {error && (
+                  <p className="text-gray-500 text-xs mt-1 max-w-xs break-words">
+                    {error}
+                  </p>
                 )}
-                <p className="text-gray-500 text-xs mt-1">You can still chat below. Voice and text work without the avatar.</p>
                 <button
-                  onClick={initAvatar}
+                  onClick={handleRetry}
                   className="mt-3 px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
                 >
                   Retry Connection
                 </button>
               </div>
             )}
-            {avatarStatus === "disconnected" && (
-              <p className="text-gray-500 text-sm">Initializing avatar...</p>
-            )}
           </div>
         )}
 
         {/* Status badge */}
-        <div className="absolute top-3 left-3 flex items-center gap-2 bg-gray-900/80 backdrop-blur rounded-full px-3 py-1.5">
-          <div className={`w-2 h-2 rounded-full ${status.color}`} />
-          <span className="text-xs text-gray-300">{status.label}</span>
+        <div className="absolute top-3 left-3 flex items-center gap-2 bg-gray-900/80 backdrop-blur rounded-full px-3 py-1.5 z-30">
+          <div className={`w-2 h-2 rounded-full ${statusInfo.color}`} />
+          <span className="text-xs text-gray-300">{statusInfo.label}</span>
         </div>
 
         {/* Speaking indicator */}
@@ -478,7 +339,7 @@ export default function AvatarChat({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-indigo-600/80 backdrop-blur rounded-full px-3 py-1.5"
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-indigo-600/80 backdrop-blur rounded-full px-3 py-1.5 z-30"
             >
               <div className="flex gap-0.5 items-end h-3">
                 {[0, 1, 2, 3, 4].map((i) => (
@@ -495,16 +356,46 @@ export default function AvatarChat({
           )}
         </AnimatePresence>
 
+        {/* Mic active indicator (when conversation is active) */}
+        <AnimatePresence>
+          {status === "active" && !isSpeaking && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-gray-800/80 backdrop-blur rounded-full px-3 py-1.5 z-30"
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs text-gray-300">Listening...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Transcript toggle */}
         <button
           onClick={() => setShowTranscript((v) => !v)}
-          className="absolute top-3 right-3 bg-gray-900/80 backdrop-blur rounded-full p-2 text-gray-400 hover:text-white transition-colors"
+          className="absolute top-3 right-3 bg-gray-900/80 backdrop-blur rounded-full p-2 text-gray-400 hover:text-white transition-colors z-30"
           title={showTranscript ? "Hide transcript" : "Show transcript"}
         >
           <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
             <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v6a2 2 0 01-2 2H6l-4 4V5z" />
           </svg>
         </button>
+
+        {/* End conversation button */}
+        {status === "active" && (
+          <button
+            onClick={() => {
+              stopElevenLabs();
+              avatarRef.current?.disconnect();
+              avatarRef.current = null;
+              setStatus("disconnected");
+            }}
+            className="absolute top-3 right-14 bg-red-600/80 hover:bg-red-500 backdrop-blur rounded-full px-3 py-1.5 text-white text-xs font-semibold transition-colors z-30"
+          >
+            End Call
+          </button>
+        )}
 
         {/* Transcript overlay */}
         <AnimatePresence>
@@ -513,7 +404,7 @@ export default function AvatarChat({
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              className="absolute top-12 right-3 bottom-14 w-72 bg-gray-950/85 backdrop-blur-md rounded-xl border border-gray-800 overflow-hidden flex flex-col"
+              className="absolute top-12 right-3 bottom-14 w-72 bg-gray-950/85 backdrop-blur-md rounded-xl border border-gray-800 overflow-hidden flex flex-col z-20"
             >
               <div className="px-3 py-2 border-b border-gray-800 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
@@ -533,17 +424,6 @@ export default function AvatarChat({
                     {msg.content}
                   </div>
                 ))}
-                {isProcessing && (
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    <span className="font-medium">Flow:</span>
-                    <motion.span
-                      animate={{ opacity: [0.3, 1, 0.3] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                    >
-                      thinking...
-                    </motion.span>
-                  </div>
-                )}
                 <div ref={bottomRef} />
               </div>
             </motion.div>
@@ -553,15 +433,15 @@ export default function AvatarChat({
 
       {/* Error display */}
       <AnimatePresence>
-        {chatError && (
+        {error && status === "active" && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             className="px-4 py-2 bg-red-950/60 border-t border-red-800 text-red-400 text-xs"
           >
-            {chatError}
-            <button className="ml-2 underline" onClick={() => setChatError(null)}>
+            {error}
+            <button className="ml-2 underline" onClick={() => setError(null)}>
               dismiss
             </button>
           </motion.div>
@@ -607,92 +487,20 @@ export default function AvatarChat({
         )}
       </AnimatePresence>
 
-      {/* Input area */}
-      <div className="px-3 pb-3 pt-2 border-t border-gray-800 shrink-0">
-        {isRecording ? (
-          /* Recording active — show stop button */
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
-              <motion.div
-                className="w-2 h-2 rounded-full bg-red-500"
-                animate={{ opacity: [1, 0.3, 1] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-              />
-              Listening...
-            </div>
-            <motion.button
-              type="button"
-              onClick={stopRecording}
-              whileTap={{ scale: 0.9 }}
-              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center transition-colors shadow-lg shadow-red-900/40"
-            >
-              <svg viewBox="0 0 20 20" className="w-5 h-5" fill="white">
-                <rect x="5" y="5" width="10" height="10" rx="2" />
-              </svg>
-            </motion.button>
-            <p className="text-gray-500 text-xs">Tap to send</p>
-          </div>
-        ) : isProcessing || isSpeaking ? (
-          /* Processing or avatar speaking — show status */
-          <div className="flex items-center justify-center gap-2 py-3">
-            <motion.div
-              className="flex gap-1 items-end h-4"
-              animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  className="w-1 bg-indigo-500 rounded-full"
-                  animate={{ height: ["6px", "16px", "6px"] }}
-                  transition={{ duration: 0.7, repeat: Infinity, delay: i * 0.15 }}
-                />
-              ))}
-            </motion.div>
-            <span className="text-gray-400 text-sm">
-              {isSpeaking ? "Speaking..." : "Thinking..."}
-            </span>
-          </div>
+      {/* Bottom info bar */}
+      <div className="px-4 py-3 border-t border-gray-800 shrink-0 flex items-center justify-center gap-3">
+        {status === "active" ? (
+          <p className="text-gray-400 text-xs text-center">
+            Voice conversation active — speak naturally. The avatar will respond in real-time.
+          </p>
         ) : (
-          /* Idle — show text input as fallback */
-          <form onSubmit={handleSubmit} className="flex items-end gap-2">
-            <motion.button
-              type="button"
-              onClick={startRecording}
-              whileTap={{ scale: 0.88 }}
-              className="w-12 h-12 rounded-full bg-gray-700 hover:bg-indigo-700 flex items-center justify-center transition-colors shrink-0"
-              title="Start recording"
-            >
-              <svg viewBox="0 0 20 20" className="w-5 h-5 fill-white" fill="currentColor">
-                <path d="M10 1a3 3 0 00-3 3v6a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                <path d="M5.5 10a4.5 4.5 0 009 0h-1a3.5 3.5 0 01-7 0h-1zM10 16v3m-2 0h4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-              </svg>
-            </motion.button>
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type or tap mic..."
-              rows={1}
-              className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors max-h-32"
-              style={{ minHeight: "2.5rem" }}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-              }}
-            />
-            <motion.button
-              type="submit"
-              disabled={!inputText.trim()}
-              whileTap={{ scale: 0.92 }}
-              className="shrink-0 w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-            >
-              <svg viewBox="0 0 20 20" className="w-4 h-4" fill="none">
-                <path d="M3 10L17 3l-7 7 7 7-14-7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-              </svg>
-            </motion.button>
-          </form>
+          <p className="text-gray-500 text-xs text-center">
+            {status === "connecting"
+              ? "Setting up voice conversation..."
+              : status === "error"
+              ? "Connection failed. Click Retry to try again."
+              : "Waiting for connection..."}
+          </p>
         )}
       </div>
     </div>

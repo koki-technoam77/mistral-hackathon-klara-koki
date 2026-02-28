@@ -106,4 +106,5 @@ export interface Message {
 
 export interface AnamSessionResponse {
   session_token: string;
+  elevenlabs_agent_id: string;
 }

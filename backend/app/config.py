@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     anam_api_key: str = ""
     anam_avatar_id: str = ""
 
+    # ElevenLabs Conversational AI Agent
+    elevenlabs_agent_id: str = ""
+
     # Multi-AI Provider OAuth Settings
     anthropic_api_key: str = ""
     openai_api_key: str = ""

@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data:",
-              `connect-src 'self' ${wsUrl} ${apiUrl} https://api.anam.ai https://*.anam.ai wss://*.anam.ai`,
+              `connect-src 'self' ${wsUrl} ${apiUrl} https://api.anam.ai https://*.anam.ai wss://*.anam.ai wss://api.elevenlabs.io`,
               "media-src 'self' blob:",
               "frame-ancestors 'none'",
             ].join("; "),

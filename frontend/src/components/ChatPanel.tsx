@@ -52,12 +52,10 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastUserRequestRef = useRef<string>("");
 
-  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Cleanup MediaRecorder and mic on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current?.state === "recording") {
@@ -67,12 +65,9 @@ export default function ChatPanel({
     };
   }, []);
 
-  // Reset feedback state when workflow changes
   useEffect(() => {
     setFeedbackSent(false);
   }, [currentWorkflow]);
-
-  // ─── Text send ──────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -91,8 +86,6 @@ export default function ChatPanel({
 
       try {
         const res = await api.chat(text.trim(), sessionId ?? undefined);
-
-        // Persist session_id returned by backend for subsequent messages
         if (res.session_id) {
           setSessionId(res.session_id);
         }
@@ -137,10 +130,8 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Voice recording ────────────────────────────────────────────────────────
-
   const startRecording = useCallback(async () => {
-    if (isProcessing) return; // Prevent recording while processing
+    if (isProcessing) return;
     setRecordingError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -254,8 +245,6 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Workflow execution ─────────────────────────────────────────────────────
-
   const handleRunWorkflow = async () => {
     if (!currentWorkflow || isExecuting) return;
     setIsExecuting(true);
@@ -277,7 +266,6 @@ export default function ChatPanel({
       onNewMessage(xpMsg);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Signal execution failure to parent so UI doesn't stay stuck in "running"
       onExecutionComplete({
         execution: {
           id: crypto.randomUUID(),
@@ -301,8 +289,6 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Reset ──────────────────────────────────────────────────────────────────
-
   const handleReset = async () => {
     try {
       await api.resetChat(sessionId ?? undefined);
@@ -319,8 +305,6 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Suggestion chip handler ──────────────────────────────────────────────
-
   const handleChipClick = useCallback(
     (text: string) => {
       if (isProcessing) return;
@@ -329,13 +313,10 @@ export default function ChatPanel({
     [isProcessing, sendMessage]
   );
 
-  // ─── Render ─────────────────────────────────────────────────────────────────
-
   const hasOnlyWelcome = messages.length === 1 && messages[0].role === "assistant";
 
   return (
     <div className="panel flex flex-col h-full min-h-[400px] overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
@@ -349,7 +330,6 @@ export default function ChatPanel({
         </button>
       </div>
 
-      {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {hasOnlyWelcome && (
           <motion.div
@@ -358,7 +338,6 @@ export default function ChatPanel({
             transition={{ delay: 0.3 }}
             className="empty-state"
           >
-            {/* Illustration */}
             <div className="w-16 h-16 rounded-2xl bg-indigo-600/15 border border-indigo-500/20 flex items-center justify-center mb-1">
               <svg viewBox="0 0 40 40" className="w-9 h-9 text-indigo-400" fill="none">
                 <path d="M8 28 Q6 34 12 32 L14 30" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -368,7 +347,7 @@ export default function ChatPanel({
             </div>
             <p className="text-gray-300 font-medium text-sm">What would you like to automate?</p>
             <p className="text-gray-500 text-xs max-w-[220px]">
-              Describe any task in plain English and I'll turn it into a workflow.
+              Describe any task in plain English and I&apos;ll turn it into a workflow.
             </p>
           </motion.div>
         )}
@@ -405,7 +384,6 @@ export default function ChatPanel({
           ))}
         </AnimatePresence>
 
-        {/* Typing indicator */}
         {isProcessing && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
@@ -433,7 +411,6 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      {/* Error display */}
       <AnimatePresence>
         {(chatError || recordingError) && (
           <motion.div
@@ -453,7 +430,6 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Workflow action bar */}
       <AnimatePresence>
         {currentWorkflow && (
           <motion.div
@@ -519,9 +495,7 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Input area */}
       <div className="px-3 pb-3 pt-2 border-t border-gray-800 shrink-0">
-        {/* Suggestion chips */}
         {!isProcessing && messages.length <= 2 && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
@@ -544,7 +518,6 @@ export default function ChatPanel({
         )}
 
         <form onSubmit={handleSubmit} className="flex items-end gap-2">
-          {/* Voice button — larger with label */}
           <div className="tooltip-wrapper shrink-0">
             <motion.button
               type="button"
@@ -567,7 +540,6 @@ export default function ChatPanel({
             <span className="tooltip-label">{isRecording ? "Release" : "Hold to talk"}</span>
           </div>
 
-          {/* Text area */}
           <textarea
             ref={inputRef}
             value={inputText}
@@ -589,7 +561,6 @@ export default function ChatPanel({
             }}
           />
 
-          {/* Send button */}
           <motion.button
             type="submit"
             disabled={!inputText.trim() || isProcessing}
