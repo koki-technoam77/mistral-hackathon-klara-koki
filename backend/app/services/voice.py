@@ -1,4 +1,4 @@
-import base64
+import io
 import logging
 
 from elevenlabs import ElevenLabs
@@ -25,20 +25,11 @@ class VoiceService:
 
     async def transcribe(self, audio_data: bytes) -> str:
         try:
-            audio_b64 = base64.b64encode(audio_data).decode("utf-8")
-            response = await self.mistral_client.chat.complete_async(
-                model="mistral-large-latest",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Transcribe this audio accurately. Return only the transcription, nothing else."},
-                            {"type": "audio_url", "audio_url": f"data:audio/wav;base64,{audio_b64}"},
-                        ],
-                    }
-                ],
+            response = await self.mistral_client.audio.transcriptions.complete_async(
+                model="voxtral-mini-latest",
+                file={"content": io.BytesIO(audio_data), "file_name": "recording.webm"},
             )
-            return response.choices[0].message.content.strip()
+            return response.text.strip()
         except Exception as e:
             logger.error("Transcription error: %s", e)
             return ""
