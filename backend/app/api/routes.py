@@ -122,11 +122,7 @@ class ChatResponse(BaseModel):
     session_id: str
 
 
-ALLOWED_SERVICES = frozenset([
-    "Gmail", "Slack", "Discord", "Twitter", "Google Sheets", "Google Calendar",
-    "Notion", "Trello", "GitHub", "Jira", "Linear", "Salesforce", "HubSpot",
-    "Zapier", "Airtable", "Dropbox", "OneDrive", "Teams", "Telegram", "WhatsApp",
-])
+from app.models.services import SUPPORTED_SERVICES as ALLOWED_SERVICES
 
 
 class WorkflowGenerateRequest(BaseModel):

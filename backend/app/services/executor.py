@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 from mistralai import Mistral
 
+from app.models.services import COMPOSIO_ACTIONS
 from app.models.workflow import (
     ALLOWED_ACTIONS,
     WorkflowDefinition,
@@ -16,15 +17,6 @@ from app.models.workflow import (
     WorkflowExecution,
     WorkflowExecutionStatus,
 )
-
-
-COMPOSIO_ACTIONS = frozenset([
-    "send_email",
-    "create_calendar_event",
-    "list_emails",
-    "create_task",
-    "send_slack_message",
-])
 
 EXECUTION_TIMEOUT = 120.0  # 2 minutes total
 MAX_LLM_CONTENT_LENGTH = 10000  # chars

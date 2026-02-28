@@ -25,24 +25,34 @@ APPEARANCE_STAGES = {
 }
 
 ACTION_TO_BRANCH = {
+    # Communication
     "send_email": SkillBranch.communication,
+    "list_emails": SkillBranch.communication,
     "send_message": SkillBranch.communication,
+    "send_slack_message": SkillBranch.communication,
     "post_social": SkillBranch.communication,
     "slack_notify": SkillBranch.communication,
     "discord_message": SkillBranch.communication,
+    # Data
     "query_database": SkillBranch.data,
     "fetch_data": SkillBranch.data,
     "transform_data": SkillBranch.data,
     "aggregate_data": SkillBranch.data,
+    # Creative
     "generate_image": SkillBranch.creative,
     "create_content": SkillBranch.creative,
     "write_document": SkillBranch.creative,
+    # Scheduling
+    "create_calendar_event": SkillBranch.scheduling,
     "schedule_task": SkillBranch.scheduling,
     "delay_step": SkillBranch.scheduling,
     "cron_schedule": SkillBranch.scheduling,
+    # DevOps
     "deploy_service": SkillBranch.devops,
     "monitor_system": SkillBranch.devops,
     "configure_pipeline": SkillBranch.devops,
+    # Task management
+    "create_task": SkillBranch.data,
 }
 
 
