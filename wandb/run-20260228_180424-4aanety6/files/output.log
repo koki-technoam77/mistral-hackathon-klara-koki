@@ -1,0 +1,61 @@
+Generating:   1%|▌                                                           | 1/120 [00:19<38:43, 19.53s/it]
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+  ✗ Failed example 1, skipping
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+  ✗ API error: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+Traceback (most recent call last):
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 205, in generate_example
+    response = client.chat.complete(
+        model=GENERATOR_MODEL,
+    ...<6 lines>...
+        response_format={"type": "json_object"},
+    )
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/mistralai/chat.py", line 273, in complete
+    raise models.SDKError("API error occurred", http_res, http_res_text)
+mistralai.models.sdkerror.SDKError: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 205, in generate_example
+    response = client.chat.complete(
+        model=GENERATOR_MODEL,
+    ...<6 lines>...
+        response_format={"type": "json_object"},
+    )
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/mistralai/chat.py", line 273, in complete
+    raise models.SDKError("API error occurred", http_res, http_res_text)
+mistralai.models.sdkerror.SDKError: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 205, in generate_example
+    response = client.chat.complete(
+        model=GENERATOR_MODEL,
+    ...<6 lines>...
+        response_format={"type": "json_object"},
+    )
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/mistralai/chat.py", line 273, in complete
+    raise models.SDKError("API error occurred", http_res, http_res_text)
+mistralai.models.sdkerror.SDKError: API error occurred: Status 401 Content-Type "application/json; charset=utf-8". Body: {"detail":"Unauthorized"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 366, in <module>
+    main()
+    ~~~~^^
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 303, in main
+    result = generate_example(seed)
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 235, in generate_example
+    return generate_example(seed, attempt + 1)
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 235, in generate_example
+    return generate_example(seed, attempt + 1)
+  File "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py", line 234, in generate_example
+    time.sleep(3)
+    ~~~~~~~~~~^^^
+KeyboardInterrupt

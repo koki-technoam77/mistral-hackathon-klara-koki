@@ -1,0 +1,13 @@
+{"time":"2026-02-28T18:07:15.550319+09:00","level":"INFO","msg":"stream: starting","core version":"0.25.0"}
+{"time":"2026-02-28T18:07:15.884709+09:00","level":"INFO","msg":"stream: created new stream","id":"d0p9r9by"}
+{"time":"2026-02-28T18:07:15.885066+09:00","level":"INFO","msg":"handler: started","stream_id":"d0p9r9by"}
+{"time":"2026-02-28T18:07:15.885254+09:00","level":"INFO","msg":"writer: started","stream_id":"d0p9r9by"}
+{"time":"2026-02-28T18:07:15.885388+09:00","level":"INFO","msg":"stream: started","id":"d0p9r9by"}
+{"time":"2026-02-28T18:07:15.885404+09:00","level":"INFO","msg":"sender: started","stream_id":"d0p9r9by"}
+{"time":"2026-02-28T18:53:03.77785+09:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/files/klaraa-konkel-mistral-ai/ai-agency-finetune/d0p9r9by/file_stream\": read tcp 100.114.152.205:63316->35.186.228.49:443: read: connection reset by peer"}
+{"time":"2026-02-28T19:27:34.034961+09:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-02-28T19:27:34.324072+09:00","level":"INFO","msg":"handler: operation stats","stats":{}}
+{"time":"2026-02-28T19:27:34.33399+09:00","level":"INFO","msg":"stream: closing","id":"d0p9r9by"}
+{"time":"2026-02-28T19:27:34.334742+09:00","level":"INFO","msg":"handler: closed","stream_id":"d0p9r9by"}
+{"time":"2026-02-28T19:27:34.335349+09:00","level":"INFO","msg":"sender: closed","stream_id":"d0p9r9by"}
+{"time":"2026-02-28T19:27:34.335367+09:00","level":"INFO","msg":"stream: closed","id":"d0p9r9by"}

@@ -1,0 +1,37 @@
+{
+  "os": "macOS-26.3-arm64-arm-64bit-Mach-O",
+  "python": "CPython 3.13.5",
+  "startedAt": "2026-02-28T09:04:24.993591Z",
+  "program": "/Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py",
+  "codePath": "backend/fine_tuning/generate_training_data.py",
+  "codePathLocal": "backend/fine_tuning/generate_training_data.py",
+  "git": {
+    "remote": "https://github.com/klarakonkel/mistral-ai-hackathon.git",
+    "commit": "73f5a708bfc40b5995998e4e94c1b4bd453873dc"
+  },
+  "email": "klaraa.konkel@gmail.com",
+  "root": "/Users/klara/Desktop/mistral_ai_hack",
+  "host": "Almedia-GmbH-Klara.local",
+  "executable": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+  "cpu_count": 10,
+  "cpu_count_logical": 10,
+  "disk": {
+    "/": {
+      "total": "245107195904",
+      "used": "201327407104"
+    }
+  },
+  "memory": {
+    "total": "17179869184"
+  },
+  "apple": {
+    "name": "Apple M4",
+    "ecpuCores": 6,
+    "pcpuCores": 4,
+    "gpuCores": 8,
+    "memoryGb": 16,
+    "swapTotalBytes": "18253611008",
+    "ramTotalBytes": "17179869184"
+  },
+  "writerId": "ohk2wsosilfye850a4fdumgg31g08u2j"
+}

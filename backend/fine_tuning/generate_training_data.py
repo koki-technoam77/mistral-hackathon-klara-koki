@@ -1,14 +1,8 @@
 """
 Synthetic Training Data Generator for AI Agency
 -----------------------------------------------
-Generates realistic client<->AI conversations that end with workflow JSON.
+Generates realistic Natalie-AI conversations that end with workflow JSON.
 Uses Mistral Large to create diverse training examples.
-
-Usage:
-    pip install mistralai wandb tqdm
-    export MISTRAL_API_KEY=your_key
-    export WANDB_API_KEY=your_key
-    python generate_training_data.py
 
 Output:
     training_data.jsonl   - for fine-tuning
@@ -18,6 +12,21 @@ Output:
 import json
 import os
 import random
+
+# Load .env file from project root (works wherever you run the script from)
+try:
+    from dotenv import load_dotenv
+    # Walk up directories to find .env
+    current = os.path.abspath(__file__)
+    for _ in range(4):  # search up to 4 levels up
+        current = os.path.dirname(current)
+        env_path = os.path.join(current, ".env")
+        if os.path.exists(env_path):
+            load_dotenv(env_path)
+            print(f"✅ Loaded .env from {env_path}")
+            break
+except ImportError:
+    print("⚠ python-dotenv not installed. Run: pip install python-dotenv")
 import time
 from tqdm import tqdm
 from mistralai import Mistral
@@ -27,6 +36,14 @@ import wandb
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
 WANDB_API_KEY   = os.environ.get("WANDB_API_KEY")
+
+# Validate keys before doing anything
+if not MISTRAL_API_KEY:
+    raise EnvironmentError("❌ MISTRAL_API_KEY not found. Check your .env file.")
+if not WANDB_API_KEY:
+    raise EnvironmentError("❌ WANDB_API_KEY not found. Check your .env file.")
+print(f"🔑 Mistral key loaded: {MISTRAL_API_KEY[:8]}...")
+print(f"🔑 W&B key loaded:     {WANDB_API_KEY[:8]}...")
 GENERATOR_MODEL = "mistral-large-latest"
 NUM_EXAMPLES    = 120   # generates 120 → ~108 train / ~12 eval
 OUTPUT_TRAIN    = "training_data.jsonl"
@@ -159,7 +176,7 @@ and an AI assistant called Aria. Then output the workflow JSON that Aria would g
 
 CONVERSATION RULES:
 - Natalie speaks naturally, uses everyday language, never says "trigger" or "node" or technical terms
-- Aria asks between 3 and 10 follow-up questions to gather all necessary details before generating the workflow
+- Aria asks between 3 and 5 follow-up questions to gather all necessary details before generating the workflow
 - Questions should feel natural, conversational, empathetic — like a smart colleague, not a form
 - Aria confirms understanding before generating ("Let me make sure I've got this right...")
 - The conversation should feel complete — all info needed for the workflow is collected
@@ -168,7 +185,7 @@ OUTPUT FORMAT:
 Return a JSON object with exactly two keys:
 {{
   "conversation": [
-    {{"role": "natalie", "content": "..."}},
+    {{"role": "Natalie", "content": "..."}},
     {{"role": "aria",   "content": "..."}},
     ...
   ],
@@ -276,8 +293,10 @@ def to_jsonl_row(example: dict) -> str:
     return json.dumps(row)
 
 
+# ── Main ───────────────────────────────────────────────────────────────────────
+
 def main():
-    print("AI Agency — Synthetic Training Data Generator")
+    print("🚀 AI Agency — Synthetic Training Data Generator")
     print(f"   Generating {NUM_EXAMPLES} examples using {GENERATOR_MODEL}\n")
 
     # Init W&B run to track data generation
