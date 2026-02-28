@@ -13,12 +13,33 @@ class Settings(BaseSettings):
     wandb_project: str = "kotoflow"
     ft_model_name: Optional[str] = None
     kotoflow_api_key: str = ""
+
+    # Multi-AI Provider OAuth Settings
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    gemini_api_key: str = ""
+
+    # OAuth Token Endpoints (subscription-based)
+    anthropic_oauth_client_id: str = ""
+    anthropic_oauth_client_secret: str = ""
+    openai_oauth_client_id: str = ""
+    openai_oauth_client_secret: str = ""
+    gemini_oauth_client_id: str = ""
+    gemini_oauth_client_secret: str = ""
+
+    # AI Team Configuration
+    ai_team_default_strategy: str = "route"  # route | consensus | fallback
+    ai_team_consensus_threshold: int = 2     # min providers for consensus
+
     cors_origins: list[str] = ["http://localhost:3000", "https://localhost:3000"]
     allowed_domains: list[str] = [
         "api.mistral.ai",
         "api.elevenlabs.io",
         "api.composio.dev",
         "api.wandb.ai",
+        "api.anthropic.com",
+        "api.openai.com",
+        "generativelanguage.googleapis.com",
     ]
 
     @field_validator("ft_model_name")

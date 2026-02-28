@@ -11,7 +11,16 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.models.character import CharacterState
+from app.models.ai_team import (
+    AIProvider,
+    OrchestrationStrategy,
+    TaskType,
+    TeamTaskRequest,
+    TeamTaskResponse,
+    TeamStatus,
+)
 from app.models.workflow import WorkflowDefinition, WorkflowExecution
+from app.services.ai_team import AITeamOrchestrator
 from app.services.character import CharacterService
 from app.services.executor import WorkflowExecutor
 from app.services.orchestrator import OrchestratorAgent, OrchestratorResponse
@@ -32,6 +41,7 @@ _workflow_generator: Optional[WorkflowGenerator] = None
 _workflow_executor: Optional[WorkflowExecutor] = None
 _voice_service: Optional[VoiceService] = None
 _character_service: Optional[CharacterService] = None
+_ai_team: Optional[AITeamOrchestrator] = None
 _sessions: dict[str, tuple[OrchestratorAgent, float]] = {}
 _SESSION_TTL = 3600  # 1 hour
 _MAX_SESSIONS = 1000
@@ -75,7 +85,7 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
 
 
 def _get_services():
-    global _workflow_generator, _workflow_executor, _voice_service, _character_service
+    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team
 
     settings = _get_settings()
 
@@ -87,12 +97,15 @@ def _get_services():
         _voice_service = VoiceService(settings)
     if _character_service is None:
         _character_service = CharacterService()
+    if _ai_team is None:
+        _ai_team = AITeamOrchestrator(settings)
 
     return {
         "workflow_generator": _workflow_generator,
         "workflow_executor": _workflow_executor,
         "voice_service": _voice_service,
         "character_service": _character_service,
+        "ai_team": _ai_team,
     }
 
 
@@ -315,6 +328,77 @@ async def voice_synthesize(request: VoiceSynthesizeRequest):
     except Exception as e:
         logger.error("Synthesis error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Voice synthesis failed")
+
+
+# ──────────────────────────────────────────────────────────────────
+# AI Team Orchestration Endpoints
+# ──────────────────────────────────────────────────────────────────
+
+class TeamChatRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=8000)
+    task_type: str = "general"
+    strategy: str = "route"
+    preferred_provider: Optional[str] = None
+    max_tokens: int = Field(default=2048, ge=1, le=8192)
+    session_id: str = Field(default_factory=lambda: str(uuid4()))
+
+
+@router.post("/team/execute", response_model=TeamTaskResponse, dependencies=[Depends(_verify_api_key)])
+async def team_execute(request: TeamChatRequest):
+    """Execute a task using the multi-AI orchestration team."""
+    services = _get_services()
+    ai_team: AITeamOrchestrator = services["ai_team"]
+
+    if not ai_team.available_providers():
+        raise HTTPException(status_code=503, detail="No AI providers configured")
+
+    try:
+        task_request = TeamTaskRequest(
+            prompt=request.prompt,
+            task_type=TaskType(request.task_type),
+            strategy=OrchestrationStrategy(request.strategy),
+            preferred_provider=AIProvider(request.preferred_provider) if request.preferred_provider else None,
+            max_tokens=request.max_tokens,
+            session_id=request.session_id,
+        )
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid task_type, strategy, or provider")
+
+    try:
+        response = await ai_team.execute(task_request)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI team execution error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="AI team execution failed")
+
+
+@router.get("/team/status", response_model=TeamStatus, dependencies=[Depends(_verify_api_key)])
+async def team_status():
+    """Get the health and status of all AI providers in the team."""
+    services = _get_services()
+    ai_team: AITeamOrchestrator = services["ai_team"]
+
+    try:
+        return await ai_team.get_status()
+    except Exception as e:
+        logger.error("AI team status error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Status check failed")
+
+
+@router.get("/team/providers", dependencies=[Depends(_verify_api_key)])
+async def team_providers():
+    """List available AI providers."""
+    services = _get_services()
+    ai_team: AITeamOrchestrator = services["ai_team"]
+    available = ai_team.available_providers()
+    return {
+        "providers": [p.value for p in available],
+        "count": len(available),
+        "strategies": [s.value for s in OrchestrationStrategy],
+        "task_types": [t.value for t in TaskType],
+    }
 
 
 @router.get("/health", response_model=HealthResponse)
