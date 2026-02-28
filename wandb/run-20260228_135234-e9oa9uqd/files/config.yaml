@@ -1,0 +1,37 @@
+_wandb:
+    value:
+        cli_version: 0.25.0
+        e:
+            zjqzmv433vq5tp15ibft38tca8zcct8i:
+                codePath: sample.py
+                codePathLocal: sample.py
+                email: klaraa.konkel@gmail.com
+                executable: /Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+                git:
+                    commit: 1cf2d24cb83e898db014211516ea854b6d7de821
+                    remote: https://github.com/klarakonkel/mistral-ai-hackathon.git
+                host: Almedia-GmbH-Klara.local
+                os: macOS-26.3-arm64-arm-64bit-Mach-O
+                program: /Users/klara/Desktop/mistral_ai_hack/sample.py
+                python: CPython 3.13.5
+                root: /Users/klara/Desktop/mistral_ai_hack
+                startedAt: "2026-02-28T04:52:34.853347Z"
+                writerId: zjqzmv433vq5tp15ibft38tca8zcct8i
+        m: []
+        python_version: 3.13.5
+        t:
+            "3":
+                - 2
+                - 16
+            "4": 3.13.5
+            "5": 0.25.0
+            "12": 0.25.0
+            "13": darwin-arm64
+architecture:
+    value: CNN
+dataset:
+    value: CIFAR-100
+epochs:
+    value: 10
+learning_rate:
+    value: 0.02

@@ -1,0 +1,55 @@
+_wandb:
+    value:
+        cli_version: 0.25.0
+        e:
+            vkxa68t14dvg75jav4gnusw3i0xtkhxg:
+                apple:
+                    ecpuCores: 6
+                    gpuCores: 8
+                    memoryGb: 16
+                    name: Apple M4
+                    pcpuCores: 4
+                    ramTotalBytes: "17179869184"
+                    swapTotalBytes: "19327352832"
+                codePath: backend/fine_tuning/generate_training_data.py
+                codePathLocal: backend/fine_tuning/generate_training_data.py
+                cpu_count: 10
+                cpu_count_logical: 10
+                disk:
+                    /:
+                        total: "245107195904"
+                        used: "202403631104"
+                email: klaraa.konkel@gmail.com
+                executable: /Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+                git:
+                    commit: 73f5a708bfc40b5995998e4e94c1b4bd453873dc
+                    remote: https://github.com/klarakonkel/mistral-ai-hackathon.git
+                host: Almedia-GmbH-Klara.local
+                memory:
+                    total: "17179869184"
+                os: macOS-26.3-arm64-arm-64bit-Mach-O
+                program: /Users/klara/Desktop/mistral_ai_hack/backend/fine_tuning/generate_training_data.py
+                python: CPython 3.13.5
+                root: /Users/klara/Desktop/mistral_ai_hack
+                startedAt: "2026-02-28T09:07:15.279683Z"
+                writerId: vkxa68t14dvg75jav4gnusw3i0xtkhxg
+        m: []
+        python_version: 3.13.5
+        t:
+            "3":
+                - 2
+                - 13
+                - 16
+            "4": 3.13.5
+            "5": 0.25.0
+            "12": 0.25.0
+            "13": darwin-arm64
+generator_model:
+    value: mistral-large-latest
+num_examples:
+    value: 120
+scenarios:
+    value:
+        - email_to_sheet
+        - sheet_to_email
+        - email_triage
