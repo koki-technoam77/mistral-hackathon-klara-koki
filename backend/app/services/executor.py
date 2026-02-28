@@ -37,7 +37,7 @@ class WorkflowExecutor:
     def __init__(self, config):
         self.config = config
         self.mistral_client = Mistral(api_key=config.mistral_api_key)
-        self.allowed_domains = frozenset(config.allowed_domains)
+        self.allowed_domains = frozenset(config.allowed_domains_list)
 
     async def execute(self, workflow: WorkflowDefinition) -> WorkflowExecution:
         execution = WorkflowExecution(workflow=workflow)

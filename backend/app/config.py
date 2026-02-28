@@ -1,8 +1,26 @@
+import json
 import re
 from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+
+def _parse_str_list(v: object, default: list[str]) -> list[str]:
+    """Parse a list field that may come as JSON array, comma-separated string, or list."""
+    if isinstance(v, list):
+        return v
+    if not isinstance(v, str) or not v.strip():
+        return default
+    # Try JSON array first
+    try:
+        parsed = json.loads(v)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Fall back to comma-separated
+    return [item.strip() for item in v.split(",") if item.strip()]
 
 
 class Settings(BaseSettings):
@@ -31,16 +49,9 @@ class Settings(BaseSettings):
     ai_team_default_strategy: str = "route"  # route | consensus | fallback
     ai_team_consensus_threshold: int = 2     # min providers for consensus
 
-    cors_origins: list[str] = ["http://localhost:3000", "https://localhost:3000"]
-    allowed_domains: list[str] = [
-        "api.mistral.ai",
-        "api.elevenlabs.io",
-        "api.composio.dev",
-        "api.wandb.ai",
-        "api.anthropic.com",
-        "api.openai.com",
-        "generativelanguage.googleapis.com",
-    ]
+    # Accept JSON array, comma-separated string, or Python list
+    cors_origins: str = "http://localhost:3000,https://localhost:3000"
+    allowed_domains: str = "api.mistral.ai,api.elevenlabs.io,api.composio.dev,api.wandb.ai,api.anthropic.com,api.openai.com,generativelanguage.googleapis.com"
 
     @field_validator("ft_model_name")
     @classmethod
@@ -51,11 +62,15 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid model name: {v!r}")
         return v
 
-    @field_validator("cors_origins")
-    @classmethod
-    def validate_cors_origins(cls, v: list[str]) -> list[str]:
-        if "*" in v:
+    @property
+    def cors_origins_list(self) -> list[str]:
+        origins = _parse_str_list(self.cors_origins, ["http://localhost:3000"])
+        if "*" in origins:
             raise ValueError("Wildcard '*' is not allowed in cors_origins with credentials")
-        return v
+        return origins
+
+    @property
+    def allowed_domains_list(self) -> list[str]:
+        return _parse_str_list(self.allowed_domains, ["api.mistral.ai"])
 
     model_config = {"env_file": ".env"}

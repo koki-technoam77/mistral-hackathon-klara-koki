@@ -632,8 +632,9 @@ class TestSecurityValidation:
 
     def test_config_rejects_wildcard_cors(self):
         """Test that wildcard CORS origins are rejected."""
+        s = Settings(cors_origins="*")
         with pytest.raises(ValueError, match="Wildcard"):
-            Settings(cors_origins=["*"])
+            s.cors_origins_list
 
     def test_config_validates_ft_model_name(self):
         """Test that invalid model names are rejected."""
