@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import re
 import socket
+import time
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -26,6 +27,14 @@ COMPOSIO_ACTIONS = frozenset([
     "send_slack_message",
 ])
 
+COMPOSIO_ACTION_MAP = {
+    "send_email": "GMAIL_SEND_EMAIL",
+    "create_calendar_event": "GOOGLECALENDAR_CREATE_EVENT",
+    "list_emails": "GMAIL_LIST_EMAILS",
+    "create_task": "TODOIST_CREATE_TASK",
+    "send_slack_message": "SLACK_SEND_MESSAGE",
+}
+
 EXECUTION_TIMEOUT = 120.0  # 2 minutes total
 MAX_LLM_CONTENT_LENGTH = 10000  # chars
 MAX_RESPONSE_BYTES = 1_000_000  # 1 MB
@@ -38,8 +47,16 @@ class WorkflowExecutor:
         self.config = config
         self.mistral_client = Mistral(api_key=config.mistral_api_key)
         self.allowed_domains = frozenset(config.allowed_domains_list)
+        self._composio_toolset = None
+        if config.composio_api_key:
+            try:
+                from composio import ComposioToolSet
+                self._composio_toolset = ComposioToolSet(api_key=config.composio_api_key)
+            except Exception:
+                logger.warning("Composio SDK init failed, falling back to mock")
 
     async def execute(self, workflow: WorkflowDefinition) -> WorkflowExecution:
+        start = time.monotonic()
         execution = WorkflowExecution(workflow=workflow)
         execution.status = WorkflowExecutionStatus.running
 
@@ -52,11 +69,25 @@ class WorkflowExecutor:
         except asyncio.TimeoutError:
             execution.status = WorkflowExecutionStatus.failed
             execution.step_results = {"error": "Execution timed out"}
-        except Exception as e:
+        except Exception:
             execution.status = WorkflowExecutionStatus.failed
             execution.step_results = {"error": "Execution failed"}
 
         execution.completed_at = datetime.now(tz=UTC)
+
+        duration_ms = (time.monotonic() - start) * 1000
+        try:
+            from app.utils.wandb_tracking import trace_workflow_execution
+            trace_workflow_execution(
+                workflow_name=workflow.name,
+                step_count=len(workflow.steps),
+                status=execution.status.value,
+                step_results=execution.step_results or {},
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            logger.debug("W&B execution tracing skipped", exc_info=True)
+
         return execution
 
     async def _execute_internal(self, workflow: WorkflowDefinition) -> dict:
@@ -104,12 +135,33 @@ class WorkflowExecutor:
     async def _execute_composio(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
 
-        return {
-            "status": "success",
-            "action": step.action,
-            "params": params,
-            "result": f"Composio action '{step.action}' executed",
-        }
+        if not self._composio_toolset:
+            return {
+                "status": "success",
+                "action": step.action,
+                "params": params,
+                "result": f"Composio action '{step.action}' executed (mock — no SDK)",
+            }
+
+        composio_action = COMPOSIO_ACTION_MAP.get(step.action)
+        if not composio_action:
+            return {"status": "error", "error": f"No Composio mapping for '{step.action}'"}
+
+        try:
+            result = await asyncio.to_thread(
+                self._composio_toolset.execute_action,
+                action=composio_action,
+                params=params,
+            )
+            return {
+                "status": "success",
+                "action": step.action,
+                "composio_action": composio_action,
+                "result": result,
+            }
+        except Exception:
+            logger.error("Composio action '%s' failed", step.action, exc_info=True)
+            return {"status": "error", "error": f"Composio action '{step.action}' failed"}
 
     async def _execute_api_call(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
@@ -127,7 +179,6 @@ class WorkflowExecutor:
             body = params.get("body")
 
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-                # Check content-length before downloading
                 if method == "GET":
                     response = await client.get(url, headers=headers)
                 elif method == "POST":
@@ -152,13 +203,50 @@ class WorkflowExecutor:
 
     async def _execute_browser(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
+        action_type = params.get("action", "navigate")
+        target_url = params.get("url", "")
 
-        return {
-            "status": "success",
-            "action": "browser_action",
-            "params": params,
-            "result": "Browser action executed (mock)",
-        }
+        if action_type == "navigate" and target_url and not self._is_url_safe(target_url):
+            return {"status": "error", "error": "URL not allowed for browser action"}
+
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return {
+                "status": "success",
+                "action": "browser_action",
+                "params": params,
+                "result": "Browser action executed (mock — playwright not installed)",
+            }
+
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                try:
+                    if action_type == "navigate":
+                        await page.goto(target_url, timeout=15000)
+                        title = await page.title()
+                        return {"status": "success", "action": "navigate", "title": title, "url": target_url}
+                    elif action_type == "click":
+                        selector = params.get("selector", "")
+                        await page.click(selector, timeout=5000)
+                        return {"status": "success", "action": "click", "selector": selector}
+                    elif action_type == "type":
+                        selector = params.get("selector", "")
+                        text = params.get("text", "")
+                        await page.fill(selector, text, timeout=5000)
+                        return {"status": "success", "action": "type", "selector": selector}
+                    elif action_type == "screenshot":
+                        screenshot = await page.screenshot()
+                        return {"status": "success", "action": "screenshot", "size": len(screenshot)}
+                    else:
+                        return {"status": "error", "error": f"Unknown browser action: {action_type}"}
+                finally:
+                    await browser.close()
+        except Exception:
+            logger.error("Browser action failed", exc_info=True)
+            return {"status": "error", "error": "Browser action failed"}
 
     async def _execute_llm_summarize(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)
@@ -198,17 +286,28 @@ class WorkflowExecutor:
 
         query = str(params.get("query", ""))[:200]
 
-        return {
-            "status": "success",
-            "query": query,
-            "results": [
-                {
-                    "title": f"Result for '{query}'",
-                    "url": "https://example.com",
-                    "snippet": "Mock search result",
-                }
-            ],
-        }
+        try:
+            response = await self.mistral_client.chat.complete_async(
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": f"Search the web for: {query}"}],
+                tools=[{"type": "web_search"}],
+                tool_choice="auto",
+                max_tokens=1024,
+            )
+            content = response.choices[0].message.content if response.choices else ""
+            return {"status": "success", "query": query, "results": content}
+        except Exception:
+            return {
+                "status": "success",
+                "query": query,
+                "results": [
+                    {
+                        "title": f"Result for '{query}'",
+                        "url": "https://example.com",
+                        "snippet": "Search unavailable — mock result",
+                    }
+                ],
+            }
 
     def _is_url_safe(self, url: str) -> bool:
         parsed = urlparse(url)

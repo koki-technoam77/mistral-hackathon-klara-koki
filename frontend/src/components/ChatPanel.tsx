@@ -42,19 +42,20 @@ export default function ChatPanel({
   const [chatError, setChatError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastUserRequestRef = useRef<string>("");
 
-  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Cleanup MediaRecorder and mic on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current?.state === "recording") {
@@ -64,12 +65,15 @@ export default function ChatPanel({
     };
   }, []);
 
-  // ─── Text send ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setFeedbackSent(false);
+  }, [currentWorkflow]);
 
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || isProcessing) return;
       setChatError(null);
+      lastUserRequestRef.current = text.trim();
 
       const userMsg: Message = {
         id: crypto.randomUUID(),
@@ -82,8 +86,6 @@ export default function ChatPanel({
 
       try {
         const res = await api.chat(text.trim(), sessionId ?? undefined);
-
-        // Persist session_id returned by backend for subsequent messages
         if (res.session_id) {
           setSessionId(res.session_id);
         }
@@ -128,10 +130,8 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Voice recording ────────────────────────────────────────────────────────
-
   const startRecording = useCallback(async () => {
-    if (isProcessing) return; // Prevent recording while processing
+    if (isProcessing) return;
     setRecordingError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -191,7 +191,59 @@ export default function ChatPanel({
     stopRecording();
   };
 
-  // ─── Workflow execution ─────────────────────────────────────────────────────
+  // ─── Feedback handlers ────────────────────────────────────────────────────
+
+  const handleApproveWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "accept",
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
+  };
+
+  const handleEditWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "edit",
+        edited: true,
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
+  };
+
+  const handleRejectWorkflow = async () => {
+    if (!currentWorkflow || isFeedbackLoading) return;
+    setIsFeedbackLoading(true);
+    try {
+      await api.submitFeedback({
+        user_request: lastUserRequestRef.current,
+        workflow: currentWorkflow,
+        feedback_type: "reject",
+      });
+      setFeedbackSent(true);
+    } catch {
+      // non-critical
+    } finally {
+      setIsFeedbackLoading(false);
+    }
+  };
 
   const handleRunWorkflow = async () => {
     if (!currentWorkflow || isExecuting) return;
@@ -214,7 +266,6 @@ export default function ChatPanel({
       onNewMessage(xpMsg);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Signal execution failure to parent so UI doesn't stay stuck in "running"
       onExecutionComplete({
         execution: {
           id: crypto.randomUUID(),
@@ -238,8 +289,6 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Reset ──────────────────────────────────────────────────────────────────
-
   const handleReset = async () => {
     try {
       await api.resetChat(sessionId ?? undefined);
@@ -256,8 +305,6 @@ export default function ChatPanel({
     }
   };
 
-  // ─── Suggestion chip handler ──────────────────────────────────────────────
-
   const handleChipClick = useCallback(
     (text: string) => {
       if (isProcessing) return;
@@ -266,13 +313,10 @@ export default function ChatPanel({
     [isProcessing, sendMessage]
   );
 
-  // ─── Render ─────────────────────────────────────────────────────────────────
-
   const hasOnlyWelcome = messages.length === 1 && messages[0].role === "assistant";
 
   return (
     <div className="panel flex flex-col h-full min-h-[400px] overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
@@ -286,7 +330,6 @@ export default function ChatPanel({
         </button>
       </div>
 
-      {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {hasOnlyWelcome && (
           <motion.div
@@ -295,7 +338,6 @@ export default function ChatPanel({
             transition={{ delay: 0.3 }}
             className="empty-state"
           >
-            {/* Illustration */}
             <div className="w-16 h-16 rounded-2xl bg-indigo-600/15 border border-indigo-500/20 flex items-center justify-center mb-1">
               <svg viewBox="0 0 40 40" className="w-9 h-9 text-indigo-400" fill="none">
                 <path d="M8 28 Q6 34 12 32 L14 30" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -305,7 +347,7 @@ export default function ChatPanel({
             </div>
             <p className="text-gray-300 font-medium text-sm">What would you like to automate?</p>
             <p className="text-gray-500 text-xs max-w-[220px]">
-              Describe any task in plain English and I'll turn it into a workflow.
+              Describe any task in plain English and I&apos;ll turn it into a workflow.
             </p>
           </motion.div>
         )}
@@ -342,7 +384,6 @@ export default function ChatPanel({
           ))}
         </AnimatePresence>
 
-        {/* Typing indicator */}
         {isProcessing && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
@@ -370,7 +411,6 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      {/* Error display */}
       <AnimatePresence>
         {(chatError || recordingError) && (
           <motion.div
@@ -390,7 +430,6 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Workflow action bar */}
       <AnimatePresence>
         {currentWorkflow && (
           <motion.div
@@ -405,33 +444,58 @@ export default function ChatPanel({
               </p>
               <p className="text-xs text-gray-500">{currentWorkflow.steps.length} steps</p>
             </div>
-            <button
-              onClick={handleRunWorkflow}
-              disabled={isExecuting}
-              className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
-            >
-              {isExecuting ? (
-                <>
-                  <motion.span
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="inline-block"
-                  >
-                    ⟳
-                  </motion.span>
-                  Running…
-                </>
-              ) : (
-                <>▶ Run Workflow</>
-              )}
-            </button>
+
+            {!feedbackSent ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleApproveWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={handleEditWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleRejectWorkflow}
+                  disabled={isFeedbackLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleRunWorkflow}
+                disabled={isExecuting}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+              >
+                {isExecuting ? (
+                  <>
+                    <motion.span
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="inline-block"
+                    >
+                      ⟳
+                    </motion.span>
+                    Running…
+                  </>
+                ) : (
+                  <>▶ Run Workflow</>
+                )}
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Input area */}
       <div className="px-3 pb-3 pt-2 border-t border-gray-800 shrink-0">
-        {/* Suggestion chips */}
         {!isProcessing && messages.length <= 2 && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
@@ -454,7 +518,6 @@ export default function ChatPanel({
         )}
 
         <form onSubmit={handleSubmit} className="flex items-end gap-2">
-          {/* Voice button — larger with label */}
           <div className="tooltip-wrapper shrink-0">
             <motion.button
               type="button"
@@ -477,7 +540,6 @@ export default function ChatPanel({
             <span className="tooltip-label">{isRecording ? "Release" : "Hold to talk"}</span>
           </div>
 
-          {/* Text area */}
           <textarea
             ref={inputRef}
             value={inputText}
@@ -499,7 +561,6 @@ export default function ChatPanel({
             }}
           />
 
-          {/* Send button */}
           <motion.button
             type="submit"
             disabled={!inputText.trim() || isProcessing}

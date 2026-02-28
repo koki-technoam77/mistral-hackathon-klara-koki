@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from typing import Optional
 
 from mistralai import Mistral
@@ -10,6 +11,8 @@ from app.models.workflow import (
     WorkflowTrigger,
     TriggerType,
 )
+
+logger = __import__("logging").getLogger(__name__)
 
 
 WORKFLOW_SCHEMA = {
@@ -93,6 +96,9 @@ class WorkflowGenerator:
         trigger_type: str,
         trigger_config: dict,
     ) -> WorkflowDefinition:
+        start = time.monotonic()
+        model_used = "unknown"
+
         # Sanitize inputs
         request_summary = self._sanitize(request_summary, max_len=500)
         services = [self._sanitize(s, max_len=50) for s in services[:10]]
@@ -105,17 +111,49 @@ class WorkflowGenerator:
 
         if self.ft_model_name:
             try:
+                model_used = self.ft_model_name
                 response = await self._generate_with_model(
                     system_prompt, user_prompt, self.ft_model_name
                 )
-                return self._parse_and_validate(response)
+                workflow = self._parse_and_validate(response)
+                self._trace_generation(
+                    request_summary, services, trigger_type, workflow, model_used, start
+                )
+                return workflow
             except Exception:
                 pass
 
+        model_used = "mistral-large-latest"
         response = await self._generate_with_model(
             system_prompt, user_prompt, "mistral-large-latest"
         )
-        return self._parse_and_validate(response)
+        workflow = self._parse_and_validate(response)
+        self._trace_generation(
+            request_summary, services, trigger_type, workflow, model_used, start
+        )
+        return workflow
+
+    def _trace_generation(
+        self,
+        request_summary: str,
+        services: list[str],
+        trigger_type: str,
+        workflow: WorkflowDefinition,
+        model_used: str,
+        start: float,
+    ) -> None:
+        try:
+            from app.utils.wandb_tracking import trace_workflow_generation
+            trace_workflow_generation(
+                user_request=request_summary,
+                services=services,
+                trigger_type=trigger_type,
+                result=workflow.model_dump(),
+                model_used=model_used,
+                latency_ms=(time.monotonic() - start) * 1000,
+            )
+        except Exception:
+            logger.debug("W&B generation tracing skipped", exc_info=True)
 
     @staticmethod
     def _sanitize(text: str, max_len: int = 500) -> str:

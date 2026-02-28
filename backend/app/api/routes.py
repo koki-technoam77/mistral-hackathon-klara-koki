@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import secrets
 import time
@@ -148,6 +150,7 @@ class WorkflowGenerateRequest(BaseModel):
 
 class WorkflowExecuteRequest(BaseModel):
     workflow: WorkflowDefinition
+    session_id: str = "default"
 
 
 class WorkflowExecuteResponse(BaseModel):
@@ -169,10 +172,12 @@ class VoiceTranscribeResponse(BaseModel):
 
 class VoiceSynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
+    session_id: str = "default"
 
 
 class VoiceSynthesizePcmRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+    session_id: str = "default"
 
 
 class AnamSessionResponse(BaseModel):
@@ -204,7 +209,7 @@ async def chat(request: ChatRequest):
                 logger.error("Workflow generation failed: %s", e)
                 workflow = None
 
-        character_state = services["character_service"].character_state
+        character_state = services["character_service"].get_state(request.session_id)
 
         return ChatResponse(
             message=orchestrator_response.message,
@@ -265,8 +270,10 @@ async def workflow_execute(request: WorkflowExecuteRequest):
     try:
         execution = await services["workflow_executor"].execute(request.workflow)
 
-        xp_result = services["character_service"].award_xp(request.workflow)
-        character_state = services["character_service"].character_state
+        xp_result = services["character_service"].award_xp(
+            request.workflow, session_id=request.session_id
+        )
+        character_state = services["character_service"].get_state(request.session_id)
 
         return WorkflowExecuteResponse(
             execution=execution,
@@ -284,13 +291,24 @@ async def workflow_execute(request: WorkflowExecuteRequest):
 @router.post("/workflow/feedback", dependencies=[Depends(_verify_api_key)])
 async def workflow_feedback(request: WorkflowFeedbackRequest):
     logger.info("Feedback received: %s", request.feedback_type)
+    try:
+        from app.utils.wandb_tracking import FeedbackCollector
+        collector = FeedbackCollector()
+        collector.collect(
+            user_request=request.user_request,
+            workflow=request.workflow.model_dump(),
+            feedback_type=request.feedback_type,
+            edited=request.edited,
+        )
+    except Exception:
+        logger.error("Failed to collect feedback", exc_info=True)
     return {"status": "feedback_collected"}
 
 
 @router.get("/character", response_model=CharacterState, dependencies=[Depends(_verify_api_key)])
-async def get_character():
+async def get_character(session_id: str = "default"):
     services = _get_services()
-    return services["character_service"].character_state
+    return services["character_service"].get_state(session_id)
 
 
 @router.post("/voice/transcribe", response_model=VoiceTranscribeResponse, dependencies=[Depends(_verify_api_key)])
@@ -351,7 +369,7 @@ async def voice_synthesize(request: VoiceSynthesizeRequest):
         raise HTTPException(status_code=500, detail="Service unavailable")
 
     try:
-        voice_config = services["character_service"].character_state.voice_config
+        voice_config = services["character_service"].get_state(request.session_id).voice_config
         audio_bytes = await services["voice_service"].synthesize(request.text, voice_config)
 
         if not audio_bytes:
@@ -377,7 +395,7 @@ async def voice_synthesize_pcm(request: VoiceSynthesizePcmRequest):
         raise HTTPException(status_code=500, detail="Service unavailable")
 
     try:
-        voice_config = services["character_service"].character_state.voice_config
+        voice_config = services["character_service"].get_state(request.session_id).voice_config
         audio_bytes = await services["voice_service"].synthesize_pcm_chunked(request.text, voice_config)
 
         if not audio_bytes:
@@ -393,6 +411,63 @@ async def voice_synthesize_pcm(request: VoiceSynthesizePcmRequest):
     except Exception as e:
         logger.error("PCM synthesis error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Voice synthesis failed")
+
+
+# ──────────────────────────────────────────────────────────────────
+# SSE Streaming Execution Endpoint
+# ──────────────────────────────────────────────────────────────────
+
+@router.post("/workflow/execute-stream", dependencies=[Depends(_verify_api_key)])
+async def workflow_execute_stream(request: WorkflowExecuteRequest):
+    services = _get_services()
+    executor: WorkflowExecutor = services["workflow_executor"]
+
+    async def event_generator():
+        step_results = {}
+        executed_steps: set[str] = set()
+
+        for step in request.workflow.steps:
+            if step.depends_on and not all(d in executed_steps for d in step.depends_on):
+                continue
+
+            yield f"data: {json.dumps({'type': 'step_start', 'step_id': step.id})}\n\n"
+
+            try:
+                context = {"previous_results": step_results}
+                result = await executor._execute_step(step, context)
+                step_results[step.id] = result
+                if step.output:
+                    step_results[f"{step.id}.{step.output}"] = result
+                executed_steps.add(step.id)
+
+                yield f"data: {json.dumps({'type': 'step_complete', 'step_id': step.id, 'status': 'success'})}\n\n"
+            except Exception:
+                yield f"data: {json.dumps({'type': 'step_error', 'step_id': step.id})}\n\n"
+
+        xp_result = services["character_service"].award_xp(
+            request.workflow, session_id=request.session_id
+        )
+        character_state = services["character_service"].get_state(request.session_id)
+
+        done_payload = {
+            "type": "done",
+            "result": WorkflowExecuteResponse(
+                execution=WorkflowExecution(
+                    workflow=request.workflow,
+                    status="completed",
+                    step_results=step_results,
+                ),
+                xp_result=xp_result,
+                character_state=character_state,
+            ).model_dump(mode="json"),
+        }
+        yield f"data: {json.dumps(done_payload)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
