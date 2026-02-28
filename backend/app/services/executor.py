@@ -55,14 +55,14 @@ class WorkflowExecutor:
             except Exception:
                 logger.warning("Composio SDK init failed, falling back to mock")
 
-    async def execute(self, workflow: WorkflowDefinition) -> WorkflowExecution:
+    async def execute(self, workflow: WorkflowDefinition, entity_id: str = "default") -> WorkflowExecution:
         start = time.monotonic()
         execution = WorkflowExecution(workflow=workflow)
         execution.status = WorkflowExecutionStatus.running
 
         try:
             result = await asyncio.wait_for(
-                self._execute_internal(workflow), timeout=EXECUTION_TIMEOUT
+                self._execute_internal(workflow, entity_id=entity_id), timeout=EXECUTION_TIMEOUT
             )
             execution.step_results = result
             execution.status = WorkflowExecutionStatus.completed
@@ -90,7 +90,7 @@ class WorkflowExecutor:
 
         return execution
 
-    async def _execute_internal(self, workflow: WorkflowDefinition) -> dict:
+    async def _execute_internal(self, workflow: WorkflowDefinition, entity_id: str = "default") -> dict:
         step_results: dict[str, Any] = {}
         executed_steps: set[str] = set()
 
@@ -99,7 +99,7 @@ class WorkflowExecutor:
                 continue
 
             context = {"previous_results": step_results}
-            result = await self._execute_step(step, context)
+            result = await self._execute_step(step, context, entity_id=entity_id)
             step_results[step.id] = result
 
             if step.output:
@@ -114,9 +114,9 @@ class WorkflowExecutor:
             return True
         return all(dep in executed_steps for dep in step.depends_on)
 
-    async def _execute_step(self, step: WorkflowStep, context: dict) -> Any:
+    async def _execute_step(self, step: WorkflowStep, context: dict, entity_id: str = "default") -> Any:
         if step.action in COMPOSIO_ACTIONS:
-            return await self._execute_composio(step, context)
+            return await self._execute_composio(step, context, entity_id=entity_id)
 
         action_handlers = {
             "api_call": self._execute_api_call,
@@ -132,7 +132,7 @@ class WorkflowExecutor:
         logger.warning("Unknown action skipped: %s (step %s)", step.action, step.id)
         return {"status": "error", "error": f"Unknown action: {step.action}"}
 
-    async def _execute_composio(self, step: WorkflowStep, context: dict) -> dict:
+    async def _execute_composio(self, step: WorkflowStep, context: dict, entity_id: str = "default") -> dict:
         params = self._interpolate_params(step.params, context)
 
         if not self._composio_toolset:
@@ -159,8 +159,14 @@ class WorkflowExecutor:
             return {"status": "error", "error": f"No Composio mapping for '{step.action}'"}
 
         try:
+            # Use entity-specific toolset so each user's OAuth credentials are used
+            from composio import ComposioToolSet
+            entity_toolset = ComposioToolSet(
+                api_key=self.config.composio_api_key,
+                entity_id=entity_id,
+            )
             result = await asyncio.to_thread(
-                self._composio_toolset.execute_action,
+                entity_toolset.execute_action,
                 action=composio_action,
                 params=params,
             )

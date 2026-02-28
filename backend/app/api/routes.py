@@ -27,6 +27,7 @@ from app.services.character import CharacterService
 from app.services.executor import WorkflowExecutor
 from app.services.orchestrator import OrchestratorAgent, OrchestratorResponse
 from app.services.anam import AnamService
+from app.services.composio_auth import ComposioAuthService
 from app.services.voice import VoiceService
 from app.services.workflow_gen import WorkflowGenerator
 
@@ -46,6 +47,7 @@ _voice_service: Optional[VoiceService] = None
 _character_service: Optional[CharacterService] = None
 _ai_team: Optional[AITeamOrchestrator] = None
 _anam_service: Optional[AnamService] = None
+_composio_auth: Optional[ComposioAuthService] = None
 _sessions: dict[str, tuple[OrchestratorAgent, float]] = {}
 _SESSION_TTL = 3600  # 1 hour
 _MAX_SESSIONS = 1000
@@ -89,7 +91,7 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
 
 
 def _get_services():
-    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service
+    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service, _composio_auth
 
     settings = _get_settings()
 
@@ -105,6 +107,8 @@ def _get_services():
         _ai_team = AITeamOrchestrator(settings)
     if _anam_service is None:
         _anam_service = AnamService(settings)
+    if _composio_auth is None:
+        _composio_auth = ComposioAuthService(settings)
 
     return {
         "workflow_generator": _workflow_generator,
@@ -113,6 +117,7 @@ def _get_services():
         "character_service": _character_service,
         "ai_team": _ai_team,
         "anam_service": _anam_service,
+        "composio_auth": _composio_auth,
     }
 
 
@@ -269,7 +274,7 @@ async def workflow_execute(request: WorkflowExecuteRequest):
         raise HTTPException(status_code=500, detail="Service unavailable")
 
     try:
-        execution = await services["workflow_executor"].execute(request.workflow)
+        execution = await services["workflow_executor"].execute(request.workflow, entity_id=request.session_id)
 
         xp_result = services["character_service"].award_xp(
             request.workflow, session_id=request.session_id
@@ -442,7 +447,7 @@ async def workflow_execute_stream(request: WorkflowExecuteRequest):
 
             try:
                 context = {"previous_results": step_results}
-                result = await executor._execute_step(step, context)
+                result = await executor._execute_step(step, context, entity_id=request.session_id)
                 step_results[step.id] = result
                 if step.output:
                     step_results[f"{step.id}.{step.output}"] = result
@@ -547,6 +552,73 @@ async def team_providers():
         "strategies": [s.value for s in OrchestrationStrategy],
         "task_types": [t.value for t in TaskType],
     }
+
+
+# ──────────────────────────────────────────────────────────────────
+# Composio OAuth Connection Endpoints
+# ──────────────────────────────────────────────────────────────────
+
+
+class ComposioConnectRequest(BaseModel):
+    app_name: str = Field(..., min_length=1, max_length=50)
+    redirect_url: str = Field(..., min_length=1, max_length=500)
+    session_id: str = "default"
+
+
+class ComposioConnectionStatus(BaseModel):
+    app: str
+    status: str
+    connected_account_id: Optional[str] = None
+
+
+@router.get("/composio/apps", dependencies=[Depends(_verify_api_key)])
+async def composio_apps():
+    """List supported Composio apps."""
+    from app.services.composio_auth import SUPPORTED_APPS
+    return {"apps": SUPPORTED_APPS}
+
+
+@router.get("/composio/connections", dependencies=[Depends(_verify_api_key)])
+async def composio_connections(session_id: str = "default"):
+    """Get connection status for all supported apps for this user."""
+    services = _get_services()
+    composio_auth = services.get("composio_auth")
+    if not composio_auth or not composio_auth.available:
+        from app.services.composio_auth import SUPPORTED_APPS
+        return {"connections": [{"app": app, "status": "not_configured", "connected_account_id": None} for app in SUPPORTED_APPS]}
+
+    connections = await composio_auth.get_connections(entity_id=session_id)
+    return {"connections": connections}
+
+
+@router.post("/composio/connect", dependencies=[Depends(_verify_api_key)])
+async def composio_connect(request: ComposioConnectRequest):
+    """Initiate OAuth connection for a Composio app."""
+    services = _get_services()
+    composio_auth = services.get("composio_auth")
+    if not composio_auth or not composio_auth.available:
+        raise HTTPException(status_code=503, detail="Composio not configured")
+
+    result = await composio_auth.initiate_connection(
+        entity_id=request.session_id,
+        app_name=request.app_name,
+        redirect_url=request.redirect_url,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
+    return result
+
+
+@router.get("/composio/status/{app_name}", dependencies=[Depends(_verify_api_key)])
+async def composio_connection_status(app_name: str, session_id: str = "default"):
+    """Check connection status for a specific app."""
+    services = _get_services()
+    composio_auth = services.get("composio_auth")
+    if not composio_auth or not composio_auth.available:
+        return ComposioConnectionStatus(app=app_name, status="not_configured")
+
+    result = await composio_auth.check_connection_status(entity_id=session_id, app_name=app_name)
+    return ComposioConnectionStatus(**result)
 
 
 @router.get("/health", response_model=HealthResponse)

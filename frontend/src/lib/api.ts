@@ -265,6 +265,40 @@ export async function synthesizePcmAudio(text: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+// ─── Composio OAuth Connections ──────────────────────────────────────────────
+
+export interface ComposioConnection {
+  app: string;
+  status: "active" | "not_connected" | "not_configured";
+  connected_account_id: string | null;
+}
+
+export async function getComposioConnections(sessionId: string = "default"): Promise<{ connections: ComposioConnection[] }> {
+  return apiFetch<{ connections: ComposioConnection[] }>(`/composio/connections?session_id=${encodeURIComponent(sessionId)}`);
+}
+
+export async function initiateComposioConnection(
+  appName: string,
+  redirectUrl: string,
+  sessionId: string = "default"
+): Promise<{ status: string; redirect_url?: string; connected_account_id?: string }> {
+  return apiFetch<{ status: string; redirect_url?: string; connected_account_id?: string }>("/composio/connect", {
+    method: "POST",
+    body: JSON.stringify({ app_name: appName, redirect_url: redirectUrl, session_id: sessionId }),
+  });
+}
+
+export async function getComposioConnectionStatus(
+  appName: string,
+  sessionId: string = "default"
+): Promise<ComposioConnection> {
+  return apiFetch<ComposioConnection>(`/composio/status/${encodeURIComponent(appName)}?session_id=${encodeURIComponent(sessionId)}`);
+}
+
+export async function getComposioApps(): Promise<{ apps: string[] }> {
+  return apiFetch<{ apps: string[] }>("/composio/apps");
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<{ status: string }> {

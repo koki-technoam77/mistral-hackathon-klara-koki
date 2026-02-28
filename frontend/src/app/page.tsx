@@ -6,6 +6,7 @@ import ChatPanel from "@/components/ChatPanel";
 import AvatarChat from "@/components/AvatarChat";
 import WorkflowVisualizer from "@/components/WorkflowVisualizer";
 import CharacterPanel from "@/components/CharacterPanel";
+import ConnectionsPanel from "@/components/ConnectionsPanel";
 import * as api from "@/lib/api";
 import type {
   Message,
@@ -113,11 +114,14 @@ function Header({
   character,
   avatarMode,
   onToggleMode,
+  sessionId,
 }: {
   character: CharacterState | null;
   avatarMode: boolean;
   onToggleMode: () => void;
+  sessionId: string;
 }) {
+  const [showConnections, setShowConnections] = useState(false);
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur shrink-0">
       <div className="flex items-center gap-3">
@@ -161,6 +165,33 @@ function Header({
           )}
         </button>
 
+        {/* Services connection button */}
+        <div className="relative">
+          <button
+            onClick={() => setShowConnections((v) => !v)}
+            className="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-300 hover:text-white hover:border-indigo-500 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none">
+              <path d="M8 2v4M8 10v4M2 8h4M10 8h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+            Services
+          </button>
+          <AnimatePresence>
+            {showConnections && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 top-full mt-2 w-80 bg-gray-950 border border-gray-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+              >
+                <ConnectionsPanel sessionId={sessionId} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* Mini character badge */}
         {character && (
           <motion.div
@@ -198,6 +229,7 @@ export default function Home() {
   const [apiHealth, setApiHealth] = useState<"unknown" | "ok" | "error">("unknown");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [avatarMode, setAvatarMode] = useState(true);
+  const [sessionId] = useState(() => typeof crypto !== "undefined" ? crypto.randomUUID() : "default");
   const xpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Initial load ──────────────────────────────────────────────────────────
@@ -288,6 +320,7 @@ export default function Home() {
         character={characterState}
         avatarMode={avatarMode}
         onToggleMode={() => setAvatarMode((v) => !v)}
+        sessionId={sessionId}
       />
 
       {/* API health banner */}

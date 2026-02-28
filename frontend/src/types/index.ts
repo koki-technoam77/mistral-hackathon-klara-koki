@@ -108,3 +108,11 @@ export interface AnamSessionResponse {
   session_token: string;
   elevenlabs_agent_id: string;
 }
+
+// ─── Composio Connection types ──────────────────────────────────────────────
+
+export interface ComposioConnection {
+  app: string;
+  status: "active" | "not_connected" | "not_configured";
+  connected_account_id: string | null;
+}

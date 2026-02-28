@@ -789,3 +789,128 @@ class TestWorkflowValidation:
             output="data",
         )
         assert step.output == "data"
+
+
+# ============================================================================
+# COMPOSIO OAUTH TESTS
+# ============================================================================
+
+class TestComposioAuthService:
+    """Test ComposioAuthService initialization and methods."""
+
+    def test_service_unavailable_without_api_key(self):
+        """Service should report unavailable without API key."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+        assert not service.available
+
+    def test_service_get_required_apps(self):
+        """get_required_apps should map actions to Composio app names."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+
+        apps = service.get_required_apps(["send_email", "create_calendar_event"])
+        assert "gmail" in apps
+        assert "googlecalendar" in apps
+
+    def test_service_get_required_apps_no_composio_actions(self):
+        """get_required_apps returns empty for non-Composio actions."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+
+        apps = service.get_required_apps(["web_search", "llm_summarize"])
+        assert apps == []
+
+    @pytest.mark.asyncio
+    async def test_get_connections_returns_empty_without_sdk(self):
+        """get_connections should return empty list without SDK."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+
+        connections = await service.get_connections("test-user")
+        assert connections == []
+
+    @pytest.mark.asyncio
+    async def test_initiate_connection_without_sdk(self):
+        """initiate_connection should return error without SDK."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+
+        result = await service.initiate_connection("test-user", "gmail", "https://example.com")
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_check_status_without_sdk(self):
+        """check_connection_status should return not_configured without SDK."""
+        from app.services.composio_auth import ComposioAuthService
+        config = Settings(composio_api_key="")
+        service = ComposioAuthService(config)
+
+        result = await service.check_connection_status("test-user", "gmail")
+        assert result["status"] == "not_configured"
+
+    def test_supported_apps_constant(self):
+        """SUPPORTED_APPS should contain expected apps."""
+        from app.services.composio_auth import SUPPORTED_APPS
+        assert "gmail" in SUPPORTED_APPS
+        assert "slack" in SUPPORTED_APPS
+        assert "googlecalendar" in SUPPORTED_APPS
+        assert "todoist" in SUPPORTED_APPS
+
+
+class TestComposioRoutes:
+    """Test Composio API route endpoints."""
+
+    def test_composio_apps_endpoint(self, test_client):
+        """GET /api/composio/apps returns list of supported apps."""
+        response = test_client.get("/api/composio/apps")
+        assert response.status_code == 200
+        data = response.json()
+        assert "apps" in data
+        assert "gmail" in data["apps"]
+
+    def test_composio_connections_without_sdk(self, test_client):
+        """GET /api/composio/connections returns not_configured without SDK."""
+        response = test_client.get("/api/composio/connections?session_id=test")
+        assert response.status_code == 200
+        data = response.json()
+        assert "connections" in data
+        assert all(c["status"] == "not_configured" for c in data["connections"])
+
+    def test_composio_status_without_sdk(self, test_client):
+        """GET /api/composio/status/{app} returns not_configured without SDK."""
+        response = test_client.get("/api/composio/status/gmail?session_id=test")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["app"] == "gmail"
+        assert data["status"] == "not_configured"
+
+    def test_composio_connect_without_sdk(self, test_client):
+        """POST /api/composio/connect returns 503 without SDK."""
+        response = test_client.post("/api/composio/connect", json={
+            "app_name": "gmail",
+            "redirect_url": "https://example.com",
+            "session_id": "test",
+        })
+        assert response.status_code == 503
+
+
+class TestExecutorEntityId:
+    """Test executor entity_id parameter threading."""
+
+    @pytest.mark.asyncio
+    async def test_execute_composio_mock_with_entity_id(self, settings):
+        """Executor should accept entity_id and still work with mock."""
+        executor = WorkflowExecutor(settings)
+        workflow = WorkflowDefinition(
+            name="Test",
+            trigger=WorkflowTrigger(type=TriggerType.manual),
+            steps=[WorkflowStep(id="step_1", action="send_email", params={"to": "test@test.com"})],
+        )
+        execution = await executor.execute(workflow, entity_id="user_123")
+        assert execution.status.value in ("completed", "failed")
