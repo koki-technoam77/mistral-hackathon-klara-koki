@@ -38,6 +38,7 @@ export default function AvatarChat({
   const [chatError, setChatError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [showTranscript, setShowTranscript] = useState(true);
+  const [levelUpFlash, setLevelUpFlash] = useState(false);
 
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
   const avatarStatusRef = useRef<AvatarStatus>("disconnected");
@@ -263,24 +264,39 @@ export default function AvatarChat({
       onExecutionComplete(result);
       onCharacterUpdate(result.character_state);
 
+      const didLevelUp = result.xp_result.level_up;
+      const xpContent = didLevelUp
+        ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
+        : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
+
       const xpMsg: Message = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned${
-          result.xp_result.level_up ? ` — LEVEL UP to ${result.xp_result.new_level}!` : ""
-        }`,
+        content: xpContent,
         timestamp: new Date(),
       };
       onNewMessage(xpMsg);
 
+      // Level-up flash effect
+      if (didLevelUp) {
+        setLevelUpFlash(true);
+      }
+
       // Have avatar speak the result
       if (avatarRef.current && avatarStatusRef.current === "connected") {
         try {
-          const pcm = await api.synthesizePcmAudio(xpMsg.content);
+          setIsSpeaking(true);
+          const pcm = await api.synthesizePcmAudio(xpContent);
           if (pcm.byteLength > 0) {
             avatarRef.current.sendPcmAudio(pcm);
             avatarRef.current.endSequence();
           }
+          const wordCount = xpContent.split(/\s+/).length;
+          const duration = Math.max(1500, wordCount * 120);
+          if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
+          speakingTimerRef.current = setTimeout(() => {
+            if (mountedRef.current) setIsSpeaking(false);
+          }, duration);
         } catch {
           // non-critical
         }
@@ -331,9 +347,23 @@ export default function AvatarChat({
           id="anam-avatar-video"
           autoPlay
           playsInline
-          className="w-full h-full object-cover"
-          style={{ minHeight: "300px" }}
+          muted={false}
+          className="w-full h-full object-cover absolute inset-0"
+          style={{ minHeight: "300px", background: "#000" }}
         />
+
+        {/* Level-up golden flash overlay */}
+        <AnimatePresence>
+          {levelUpFlash && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 0.6, 0] }}
+              transition={{ duration: 2.5 }}
+              className="absolute inset-0 bg-gradient-to-t from-yellow-500/30 to-transparent pointer-events-none z-10"
+              onAnimationComplete={() => setLevelUpFlash(false)}
+            />
+          )}
+        </AnimatePresence>
 
         {/* Connecting overlay */}
         {avatarStatus !== "connected" && (
