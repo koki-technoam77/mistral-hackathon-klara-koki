@@ -10,11 +10,12 @@ from app.models.character import VoiceConfig
 logger = logging.getLogger(__name__)
 
 
-VOICE_PRESETS: dict[tuple[int, float], VoiceConfig] = {
-    (1, 2): VoiceConfig(voice_id="voice_shy_001", stability=0.9, style=0.2),
-    (3, 4): VoiceConfig(voice_id="voice_friendly_001", stability=0.7, style=0.5),
-    (5, 7): VoiceConfig(voice_id="voice_confident_001", stability=0.5, style=0.7),
-    (8, 100): VoiceConfig(voice_id="voice_professional_001", stability=0.4, style=0.9),
+# Real ElevenLabs voice IDs — evolves as character levels up
+VOICE_PRESETS: dict[tuple[int, int], VoiceConfig] = {
+    (1, 2): VoiceConfig(voice_id="EXAVITQu4vr4xnSDxMaL", stability=0.85, style=0.3),   # Sarah — soft, young
+    (3, 4): VoiceConfig(voice_id="21m00Tcm4TlvDq8ikWAM", stability=0.7, style=0.5),     # Rachel — calm, friendly
+    (5, 7): VoiceConfig(voice_id="XrExE9yKIg1WjnnlVkGX", stability=0.55, style=0.7),    # Matilda — warm, confident
+    (8, 100): VoiceConfig(voice_id="Xb7hH8MSUJpSbSDYk0k2", stability=0.4, style=0.85),  # Alice — confident, British
 }
 
 
@@ -163,4 +164,5 @@ class VoiceService:
         for (min_level, max_level), voice_config in VOICE_PRESETS.items():
             if min_level <= level <= max_level:
                 return voice_config
-        return VoiceConfig(voice_id="voice_professional_001", stability=0.4, style=0.9)
+        # Fallback to Sarah (level 1 default)
+        return VoiceConfig(voice_id="EXAVITQu4vr4xnSDxMaL", stability=0.85, style=0.3)

@@ -401,7 +401,7 @@ export default function AvatarChat({
   return (
     <div className="flex flex-col h-full min-h-[400px] overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
       {/* Avatar video area */}
-      <div className="relative flex-1 min-h-0 bg-gradient-to-b from-gray-900 to-gray-950">
+      <div className="relative flex-1 min-h-[300px] bg-gradient-to-b from-gray-900 to-gray-950">
         {/* Video element — starts muted for autoplay, unmuted after user interaction */}
         <video
           ref={videoRef}

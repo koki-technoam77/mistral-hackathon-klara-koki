@@ -84,7 +84,7 @@ DEFAULT_ACHIEVEMENTS = [
 ]
 
 
-def create_default_character(voice_id: str = "default", stability: float = 0.5, style: float = 0.0) -> CharacterState:
+def create_default_character(voice_id: str = "EXAVITQu4vr4xnSDxMaL", stability: float = 0.85, style: float = 0.3) -> CharacterState:
     return CharacterState(
         voice_config=VoiceConfig(voice_id=voice_id, stability=stability, style=style),
         skills={branch: SkillState() for branch in SkillBranch},
