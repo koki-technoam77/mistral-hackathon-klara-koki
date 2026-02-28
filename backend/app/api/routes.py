@@ -221,12 +221,16 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+class ChatResetRequest(BaseModel):
+    session_id: str = ""
+
+
 @router.post("/chat/reset", dependencies=[Depends(_verify_api_key)])
-async def chat_reset(session_id: str = ""):
-    if session_id and session_id in _sessions:
-        agent, _ = _sessions[session_id]
+async def chat_reset(request: ChatResetRequest):
+    if request.session_id and request.session_id in _sessions:
+        agent, _ = _sessions[request.session_id]
         agent.reset()
-        del _sessions[session_id]
+        del _sessions[request.session_id]
     return {"status": "reset"}
 
 
