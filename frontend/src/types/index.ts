@@ -79,6 +79,7 @@ export interface ChatResponse {
   ready: boolean;
   workflow?: WorkflowDefinition;
   character_state: CharacterState;
+  session_id: string;
 }
 
 export interface WorkflowExecuteResponse {
