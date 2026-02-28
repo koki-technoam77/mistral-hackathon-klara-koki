@@ -20,6 +20,27 @@ interface Props {
 
 type AvatarStatus = "disconnected" | "connecting" | "connected" | "error";
 
+/** Play raw PCM 16-bit 16kHz mono audio through browser speakers */
+function playPcmAudio(pcmBuffer: ArrayBuffer): void {
+  try {
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const int16 = new Int16Array(pcmBuffer);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+      float32[i] = int16[i] / 32768;
+    }
+    const audioBuffer = ctx.createBuffer(1, float32.length, 16000);
+    audioBuffer.getChannelData(0).set(float32);
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.start();
+    source.onended = () => ctx.close();
+  } catch {
+    // non-critical
+  }
+}
+
 export default function AvatarChat({
   messages,
   onNewMessage,
@@ -43,6 +64,7 @@ export default function AvatarChat({
 
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
   const avatarStatusRef = useRef<AvatarStatus>("disconnected");
+  const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -68,6 +90,15 @@ export default function AvatarChat({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
+  // Unmute video after user interaction (autoplay policy)
+  const tryUnmuteVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (video && video.muted) {
+      video.muted = false;
+      video.play().catch(() => { /* autoplay blocked, will retry on next interaction */ });
+    }
+  }, []);
+
   // Initialize Anam avatar
   const initAvatar = useCallback(async () => {
     setAvatarStatus("connecting");
@@ -84,6 +115,12 @@ export default function AvatarChat({
 
       avatarRef.current = handle;
       setAvatarStatus("connected");
+
+      // Ensure video is playing after stream is connected
+      const video = videoRef.current;
+      if (video) {
+        video.play().catch(() => { /* will be played on user interaction */ });
+      }
     } catch (err) {
       if (mountedRef.current) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -148,21 +185,25 @@ export default function AvatarChat({
           onWorkflowReady(res.workflow);
         }
 
-        // 2. Send response to avatar for lip-sync (if connected)
-        if (avatarRef.current && avatarStatusRef.current === "connected" && res.message) {
+        // 2. Synthesize and play audio + send to avatar for lip-sync
+        if (res.message) {
           try {
             setIsSpeaking(true);
             const pcmAudio = await api.synthesizePcmAudio(res.message);
             if (pcmAudio.byteLength > 0) {
-              avatarRef.current.sendPcmAudio(pcmAudio);
-              avatarRef.current.endSequence();
+              // Play audio through browser speakers
+              playPcmAudio(pcmAudio);
+              // Send to avatar for lip-sync (if connected)
+              if (avatarRef.current && avatarStatusRef.current === "connected") {
+                avatarRef.current.sendPcmAudio(pcmAudio);
+                avatarRef.current.endSequence();
+              }
             }
           } catch (err) {
-            console.error("Avatar audio error:", err);
+            console.error("Audio error:", err);
           } finally {
-            // Approximate speech duration: ~100ms per word
             const wordCount = res.message.split(/\s+/).length;
-            const duration = Math.max(1000, wordCount * 100);
+            const duration = Math.max(1500, wordCount * 120);
             if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
             speakingTimerRef.current = setTimeout(() => {
               if (mountedRef.current) setIsSpeaking(false);
@@ -188,6 +229,7 @@ export default function AvatarChat({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    tryUnmuteVideo();
     const text = inputText.trim();
     if (!text) return;
     setInputText("");
@@ -212,6 +254,8 @@ export default function AvatarChat({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!mountedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      // User granted mic permission = user gesture → unmute video for audio playback
+      tryUnmuteVideo();
       streamRef.current = stream;
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -247,7 +291,7 @@ export default function AvatarChat({
       const msg = err instanceof Error ? err.message : String(err);
       setChatError(`Mic error: ${msg}`);
     }
-  }, [isProcessing, isRecording]);
+  }, [isProcessing, isRecording, tryUnmuteVideo]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {
@@ -297,24 +341,25 @@ export default function AvatarChat({
         setLevelUpFlash(true);
       }
 
-      // Have avatar speak the result
-      if (avatarRef.current && avatarStatusRef.current === "connected") {
-        try {
-          setIsSpeaking(true);
-          const pcm = await api.synthesizePcmAudio(xpContent);
-          if (pcm.byteLength > 0) {
+      // Speak the result
+      try {
+        setIsSpeaking(true);
+        const pcm = await api.synthesizePcmAudio(xpContent);
+        if (pcm.byteLength > 0) {
+          playPcmAudio(pcm);
+          if (avatarRef.current && avatarStatusRef.current === "connected") {
             avatarRef.current.sendPcmAudio(pcm);
             avatarRef.current.endSequence();
           }
-          const wordCount = xpContent.split(/\s+/).length;
-          const duration = Math.max(1500, wordCount * 120);
-          if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-          speakingTimerRef.current = setTimeout(() => {
-            if (mountedRef.current) setIsSpeaking(false);
-          }, duration);
-        } catch {
-          // non-critical
         }
+        const wordCount = xpContent.split(/\s+/).length;
+        const duration = Math.max(1500, wordCount * 120);
+        if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
+        speakingTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) setIsSpeaking(false);
+        }, duration);
+      } catch {
+        // non-critical
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -357,13 +402,14 @@ export default function AvatarChat({
     <div className="flex flex-col h-full min-h-[400px] overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
       {/* Avatar video area */}
       <div className="relative flex-1 min-h-0 bg-gradient-to-b from-gray-900 to-gray-950">
-        {/* Video element */}
+        {/* Video element — starts muted for autoplay, unmuted after user interaction */}
         <video
+          ref={videoRef}
           id="anam-avatar-video"
           autoPlay
           playsInline
-          muted={false}
-          className="w-full h-full object-cover absolute inset-0"
+          muted
+          className="w-full h-full object-cover absolute inset-0 z-0"
           style={{ minHeight: "300px", background: "#000" }}
         />
 
@@ -382,7 +428,7 @@ export default function AvatarChat({
 
         {/* Connecting overlay */}
         {avatarStatus !== "connected" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950/80 backdrop-blur-sm">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gray-950/80 backdrop-blur-sm">
             {avatarStatus === "connecting" && (
               <motion.div
                 animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
