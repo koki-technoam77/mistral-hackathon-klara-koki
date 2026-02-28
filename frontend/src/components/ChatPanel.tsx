@@ -41,6 +41,7 @@ export default function ChatPanel({
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -80,7 +81,12 @@ export default function ChatPanel({
       setIsProcessing(true);
 
       try {
-        const res = await api.chat(text.trim());
+        const res = await api.chat(text.trim(), sessionId ?? undefined);
+
+        // Persist session_id returned by backend for subsequent messages
+        if (res.session_id) {
+          setSessionId(res.session_id);
+        }
 
         const assistantMsg: Message = {
           id: crypto.randomUUID(),
@@ -101,7 +107,7 @@ export default function ChatPanel({
         setIsProcessing(false);
       }
     },
-    [isProcessing, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing]
+    [isProcessing, sessionId, onNewMessage, onWorkflowReady, onCharacterUpdate, setIsProcessing]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -236,8 +242,8 @@ export default function ChatPanel({
 
   const handleReset = async () => {
     try {
-      await api.resetChat();
-      // Parent will clear messages if desired; here we just notify via a message
+      await api.resetChat(sessionId ?? undefined);
+      setSessionId(null);
       const resetMsg: Message = {
         id: crypto.randomUUID(),
         role: "assistant",
