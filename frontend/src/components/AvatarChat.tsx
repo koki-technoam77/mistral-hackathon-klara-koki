@@ -36,6 +36,7 @@ export default function AvatarChat({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [inputText, setInputText] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [showTranscript, setShowTranscript] = useState(true);
 
@@ -69,6 +70,7 @@ export default function AvatarChat({
   // Initialize Anam avatar
   const initAvatar = useCallback(async () => {
     setAvatarStatus("connecting");
+    setAvatarError(null);
     try {
       const { session_token } = await api.getAnamSession();
       if (!mountedRef.current) return;
@@ -83,7 +85,9 @@ export default function AvatarChat({
       setAvatarStatus("connected");
     } catch (err) {
       if (mountedRef.current) {
-        console.error("Anam init error:", err);
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error("Anam init error:", detail, err);
+        setAvatarError(detail);
         setAvatarStatus("error");
       }
     }
@@ -356,6 +360,9 @@ export default function AvatarChat({
                   <span className="text-2xl">!</span>
                 </div>
                 <p className="text-red-400 text-sm font-medium">Avatar connection failed</p>
+                {avatarError && (
+                  <p className="text-red-400/70 text-xs mt-1 max-w-xs mx-auto break-words">{avatarError}</p>
+                )}
                 <p className="text-gray-500 text-xs mt-1">You can still chat below. Voice and text work without the avatar.</p>
                 <button
                   onClick={initAvatar}
