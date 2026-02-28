@@ -117,7 +117,7 @@ class TestAITeamOrchestrator:
             anthropic_api_key="test-anthropic",
             openai_api_key="test-openai",
             gemini_api_key="test-gemini",
-            cors_origins=["http://localhost:3000"],
+            cors_origins="http://localhost:3000",
         )
         defaults.update(overrides)
         return Settings(**defaults)

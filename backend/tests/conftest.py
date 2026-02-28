@@ -21,16 +21,8 @@ def settings():
         anthropic_api_key="test-anthropic-key",
         openai_api_key="test-openai-key",
         gemini_api_key="test-gemini-key",
-        cors_origins=["http://localhost:3000"],
-        allowed_domains=[
-            "api.mistral.ai",
-            "api.elevenlabs.io",
-            "api.composio.dev",
-            "api.wandb.ai",
-            "api.anthropic.com",
-            "api.openai.com",
-            "generativelanguage.googleapis.com",
-        ],
+        cors_origins="http://localhost:3000",
+        allowed_domains="api.mistral.ai,api.elevenlabs.io,api.composio.dev,api.wandb.ai,api.anthropic.com,api.openai.com,generativelanguage.googleapis.com",
     )
 
 
