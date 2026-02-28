@@ -363,7 +363,7 @@ export default function WorkflowVisualizer({ workflow, executionStatus, stepResu
           <Controls />
           <MiniMap
             nodeColor={(n) => {
-              const d = n.data as WorkflowNodeData;
+              const d = n.data as unknown as WorkflowNodeData;
               return CATEGORY_COLORS[d?.category ?? "default"] ?? "#6366f1";
             }}
             style={{ background: "#1f2937" }}

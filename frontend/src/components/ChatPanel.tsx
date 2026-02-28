@@ -210,10 +210,16 @@ export default function ChatPanel({
       const msg = err instanceof Error ? err.message : String(err);
       // Signal execution failure to parent so UI doesn't stay stuck in "running"
       onExecutionComplete({
-        execution: { status: "failed", step_results: {} },
-        xp_result: { xp_earned: 0 },
-        character_state: undefined as never,
-      } as Awaited<ReturnType<typeof api.executeWorkflow>>);
+        execution: {
+          id: crypto.randomUUID(),
+          workflow: currentWorkflow,
+          status: "failed" as const,
+          step_results: {},
+          created_at: new Date().toISOString(),
+        },
+        xp_result: { xp_earned: 0, level_up: false },
+        character_state: {} as CharacterState,
+      });
       const errMsg: Message = {
         id: crypto.randomUUID(),
         role: "assistant",

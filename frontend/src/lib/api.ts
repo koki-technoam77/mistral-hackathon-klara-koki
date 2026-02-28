@@ -17,13 +17,17 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE_URL}/api${path}`;
-  const authHeader = API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
   const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeader,
-      ...options.headers,
-    },
+    headers,
     ...options,
   });
 
