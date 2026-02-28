@@ -1,12 +1,17 @@
 /**
  * Anam AI Avatar client utilities.
- * Uses audio passthrough mode — our backend provides PCM audio,
+ * Uses audio passthrough mode — ElevenLabs Agent provides PCM audio,
  * Anam renders the avatar with lip-sync.
  */
 
 export interface AnamAvatarHandle {
-  sendPcmAudio: (pcmArrayBuffer: ArrayBuffer) => void;
+  /** Send a base64-encoded PCM audio chunk for lip-sync */
+  sendAudioChunk: (audioBase64: string) => void;
+  /** Signal end of the current audio sequence */
   endSequence: () => void;
+  /** Interrupt the current persona animation */
+  interruptPersona: () => void;
+  /** Disconnect and clean up */
   disconnect: () => void;
 }
 
@@ -33,25 +38,25 @@ export async function initAnamAvatar(
   await client.streamToVideoElement(videoElementId);
 
   // Create audio input stream after connection is established
-  let audioInputStream;
-  try {
-    audioInputStream = client.createAgentAudioInputStream({
-      encoding: "pcm_s16le",
-      sampleRate: 16000,
-      channels: 1,
-    });
-  } catch (err) {
-    // Clean up WebRTC connection if audio stream setup fails
-    try { client.stopStreaming(); } catch { /* ignore */ }
-    throw err;
-  }
+  const audioInputStream = client.createAgentAudioInputStream({
+    encoding: "pcm_s16le",
+    sampleRate: 16000,
+    channels: 1,
+  });
 
   return {
-    sendPcmAudio: (pcmArrayBuffer: ArrayBuffer) => {
-      audioInputStream.sendAudioChunk(pcmArrayBuffer);
+    sendAudioChunk: (audioBase64: string) => {
+      audioInputStream.sendAudioChunk(audioBase64);
     },
     endSequence: () => {
       audioInputStream.endSequence();
+    },
+    interruptPersona: () => {
+      try {
+        client.interruptPersona();
+      } catch {
+        // ignore if not supported
+      }
     },
     disconnect: () => {
       try {
