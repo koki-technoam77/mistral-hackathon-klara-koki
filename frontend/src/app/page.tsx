@@ -197,7 +197,7 @@ export default function Home() {
   const [xpToast, setXpToast] = useState<{ xp: number; levelUp: boolean; newLevel?: number } | null>(null);
   const [apiHealth, setApiHealth] = useState<"unknown" | "ok" | "error">("unknown");
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [avatarMode, setAvatarMode] = useState(false);
+  const [avatarMode, setAvatarMode] = useState(true);
   const xpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Initial load ──────────────────────────────────────────────────────────

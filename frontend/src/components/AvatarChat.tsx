@@ -66,40 +66,37 @@ export default function AvatarChat({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Initialize Anam avatar on mount
-  useEffect(() => {
-    let cancelled = false;
+  // Initialize Anam avatar
+  const initAvatar = useCallback(async () => {
+    setAvatarStatus("connecting");
+    try {
+      const { session_token } = await api.getAnamSession();
+      if (!mountedRef.current) return;
 
-    async function init() {
-      setAvatarStatus("connecting");
-      try {
-        const { session_token } = await api.getAnamSession();
-        if (cancelled) return;
+      const handle = await initAnamAvatar(session_token, "anam-avatar-video");
+      if (!mountedRef.current) {
+        handle.disconnect();
+        return;
+      }
 
-        const handle = await initAnamAvatar(session_token, "anam-avatar-video");
-        if (cancelled) {
-          handle.disconnect();
-          return;
-        }
-
-        avatarRef.current = handle;
-        if (!cancelled) setAvatarStatus("connected");
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Anam init error:", err);
-          setAvatarStatus("error");
-        }
+      avatarRef.current = handle;
+      setAvatarStatus("connected");
+    } catch (err) {
+      if (mountedRef.current) {
+        console.error("Anam init error:", err);
+        setAvatarStatus("error");
       }
     }
+  }, []);
 
-    init();
-
+  // Auto-init on mount
+  useEffect(() => {
+    initAvatar();
     return () => {
-      cancelled = true;
       avatarRef.current?.disconnect();
       avatarRef.current = null;
     };
-  }, []);
+  }, [initAvatar]);
 
   // Cleanup mic on unmount
   useEffect(() => {
@@ -358,8 +355,14 @@ export default function AvatarChat({
                 <div className="w-16 h-16 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center mx-auto mb-3">
                   <span className="text-2xl">!</span>
                 </div>
-                <p className="text-red-400 text-sm font-medium">Avatar unavailable</p>
-                <p className="text-gray-500 text-xs mt-1">Falling back to text-only mode</p>
+                <p className="text-red-400 text-sm font-medium">Avatar connection failed</p>
+                <p className="text-gray-500 text-xs mt-1">You can still chat below. Voice and text work without the avatar.</p>
+                <button
+                  onClick={initAvatar}
+                  className="mt-3 px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
+                >
+                  Retry Connection
+                </button>
               </div>
             )}
             {avatarStatus === "disconnected" && (
