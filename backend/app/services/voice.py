@@ -31,7 +31,7 @@ class VoiceService:
             )
             return response.text.strip()
         except Exception as e:
-            logger.error("Transcription error: %s", e)
+            logger.error("Transcription error: %s", e, exc_info=True)
             return ""
 
     async def synthesize(self, text: str, voice_config: VoiceConfig) -> bytes:
@@ -47,7 +47,25 @@ class VoiceService:
             )
             return b"".join(response)
         except Exception as e:
-            logger.error("TTS error: %s", e)
+            logger.error("TTS error: %s", e, exc_info=True)
+            return b""
+
+    async def synthesize_pcm(self, text: str, voice_config: VoiceConfig) -> bytes:
+        """Synthesize speech as PCM 16-bit 16kHz mono for Anam avatar passthrough."""
+        try:
+            response = self.elevenlabs_client.text_to_speech.convert(
+                voice_id=voice_config.voice_id,
+                text=text,
+                model_id="eleven_multilingual_v2",
+                output_format="pcm_16000",
+                voice_settings={
+                    "stability": voice_config.stability,
+                    "similarity_boost": voice_config.style,
+                },
+            )
+            return b"".join(response)
+        except Exception as e:
+            logger.error("PCM TTS error: %s", e, exc_info=True)
             return b""
 
     @staticmethod

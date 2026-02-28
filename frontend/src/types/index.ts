@@ -79,6 +79,7 @@ export interface ChatResponse {
   ready: boolean;
   workflow?: WorkflowDefinition;
   character_state: CharacterState;
+  session_id: string;
 }
 
 export interface WorkflowExecuteResponse {
@@ -99,4 +100,10 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+}
+
+// ─── Anam Avatar types ──────────────────────────────────────────────────────
+
+export interface AnamSessionResponse {
+  session_token: string;
 }
