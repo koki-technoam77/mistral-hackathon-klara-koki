@@ -186,6 +186,7 @@ async def chat(request: ChatRequest):
                     services=orchestrator_response.workflow_request.get("services", []),
                     trigger_type=orchestrator_response.workflow_request.get("trigger_type", "manual"),
                     trigger_config=orchestrator_response.workflow_request.get("trigger_config", {}),
+                    service_config=orchestrator_response.workflow_request.get("service_config"),
                 )
             except Exception as e:
                 logger.error("Workflow generation failed: %s", e)
