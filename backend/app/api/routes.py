@@ -182,6 +182,7 @@ class VoiceSynthesizePcmRequest(BaseModel):
 
 class AnamSessionResponse(BaseModel):
     session_token: str
+    elevenlabs_agent_id: str
 
 
 class HealthResponse(BaseModel):
@@ -231,7 +232,7 @@ class ChatResetRequest(BaseModel):
 
 
 @router.post("/chat/reset", dependencies=[Depends(_verify_api_key)])
-async def chat_reset(request: ChatResetRequest):
+async def chat_reset(request: ChatResetRequest = ChatResetRequest()):
     if request.session_id and request.session_id in _sessions:
         agent, _ = _sessions[request.session_id]
         agent.reset()
@@ -344,17 +345,24 @@ async def anam_session():
     services = _get_services()
     anam: AnamService = services["anam_service"]
 
+    settings = _get_settings()
+
     if not anam.api_key:
         raise HTTPException(status_code=503, detail="Avatar service not configured")
     if not anam.avatar_id:
         raise HTTPException(status_code=503, detail="Avatar ID not configured")
+    if not settings.elevenlabs_agent_id:
+        raise HTTPException(status_code=503, detail="ElevenLabs Agent ID not configured")
 
     try:
         result = await anam.create_session()
         token = result.get("sessionToken", "")
         if not token:
             raise HTTPException(status_code=502, detail="Empty session token received")
-        return AnamSessionResponse(session_token=token)
+        return AnamSessionResponse(
+            session_token=token,
+            elevenlabs_agent_id=settings.elevenlabs_agent_id,
+        )
     except HTTPException:
         raise
     except Exception as e:
