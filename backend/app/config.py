@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # Character persistence
     character_storage_dir: str = "/tmp/kotoflow_characters"
 
+    # Composio Auth Config IDs (from Composio dashboard per app)
+    composio_auth_config_gmail: str = ""
+    composio_auth_config_googlecalendar: str = ""
+    composio_auth_config_slack: str = ""
+    composio_auth_config_todoist: str = ""
+
     # Multi-AI Provider OAuth Settings
     anthropic_api_key: str = ""
     openai_api_key: str = ""

@@ -21,7 +21,21 @@ class ComposioAuthService:
     def __init__(self, config):
         self._config = config
         self._toolset = None
+        self._auth_config_ids: dict[str, str] = {}
+        self._build_auth_config_map(config)
         self._init_sdk()
+
+    def _build_auth_config_map(self, config) -> None:
+        """Build app→auth_config_id mapping from config."""
+        mapping = {
+            "gmail": getattr(config, "composio_auth_config_gmail", ""),
+            "googlecalendar": getattr(config, "composio_auth_config_googlecalendar", ""),
+            "slack": getattr(config, "composio_auth_config_slack", ""),
+            "todoist": getattr(config, "composio_auth_config_todoist", ""),
+        }
+        self._auth_config_ids = {k: v for k, v in mapping.items() if v}
+        if self._auth_config_ids:
+            logger.info("Composio auth configs loaded: %s", list(self._auth_config_ids.keys()))
 
     def _init_sdk(self) -> None:
         if self._toolset or not self._config.composio_api_key:
@@ -55,28 +69,42 @@ class ComposioAuthService:
                     "connected_account_id": conn.id,
                 })
             except Exception:
+                # Check if auth_config_id is set for this app
+                has_config = app_name in self._auth_config_ids
                 results.append({
                     "app": app_name,
-                    "status": "not_connected",
+                    "status": "not_connected" if has_config else "not_configured",
                     "connected_account_id": None,
                 })
         return results
 
     async def initiate_connection(self, entity_id: str, app_name: str, redirect_url: str) -> dict:
-        """Start OAuth flow for a specific app. Returns redirect URL."""
+        """Start OAuth flow for a specific app using auth_config_id. Returns redirect URL."""
         if not self._toolset:
             return {"status": "error", "error": "Composio not configured"}
 
         if app_name not in SUPPORTED_APPS:
             return {"status": "error", "error": f"Unsupported app: {app_name}"}
 
+        auth_config_id = self._auth_config_ids.get(app_name)
+        if not auth_config_id:
+            return {
+                "status": "error",
+                "error": f"No Auth Config ID set for {app_name}. "
+                         f"Set COMPOSIO_AUTH_CONFIG_{app_name.upper()} env var.",
+            }
+
         try:
             entity = self._toolset.get_entity(id=entity_id)
+            logger.info(
+                "Initiating Composio connection: app=%s, entity=%s, auth_config=%s",
+                app_name, entity_id, auth_config_id,
+            )
             connection_request = await asyncio.to_thread(
                 entity.initiate_connection,
                 app_name=app_name,
+                auth_config_id=auth_config_id,
                 redirect_url=redirect_url,
-                auth_mode="OAUTH2",
             )
             return {
                 "status": "pending",

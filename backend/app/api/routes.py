@@ -778,6 +778,7 @@ async def debug_composio(session_id: str = "default"):
         "api_key_prefix": settings.composio_api_key[:8] + "..." if settings.composio_api_key else None,
         "executor_sdk_initialized": executor._composio_toolset is not None,
         "auth_sdk_initialized": composio_auth.available if composio_auth else False,
+        "auth_config_ids": composio_auth._auth_config_ids if composio_auth else {},
     }
 
     if composio_auth and composio_auth.available:
