@@ -61,6 +61,24 @@ ALLOWED_ACTIONS = frozenset([
     "deploy_service",
     "monitor_system",
     "configure_pipeline",
+    # Google Sheets (Composio, OAuth)
+    "sheets_create_row",
+    "sheets_query",
+    "sheets_lookup_row",
+    "sheets_get_schema",
+    # LinkedIn (Composio, OAuth)
+    "linkedin_create_post",
+    "linkedin_share_url",
+    "linkedin_get_my_info",
+    # Twitter / X (Composio, OAuth)
+    "tweet",
+    "twitter_search",
+    "twitter_get_analytics",
+    # GitHub (Composio, OAuth)
+    "github_create_issue",
+    "github_create_pr",
+    "github_star_repo",
+    "github_list_repos",
     # Hacker News (Composio, no auth)
     "hackernews_frontpage",
     "hackernews_get_item",

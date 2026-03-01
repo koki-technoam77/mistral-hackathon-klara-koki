@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     composio_auth_config_googlecalendar: str = ""
     composio_auth_config_slack: str = ""
     composio_auth_config_todoist: str = ""
+    composio_auth_config_googlesheets: str = ""
+    composio_auth_config_linkedin: str = ""
+    composio_auth_config_twitter: str = ""
+    composio_auth_config_github: str = ""
 
     # Multi-AI Provider OAuth Settings
     anthropic_api_key: str = ""

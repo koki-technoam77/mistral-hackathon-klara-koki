@@ -25,6 +25,24 @@ COMPOSIO_ACTIONS = frozenset([
     "list_emails",
     "create_task",
     "send_slack_message",
+    # Google Sheets
+    "sheets_create_row",
+    "sheets_query",
+    "sheets_lookup_row",
+    "sheets_get_schema",
+    # LinkedIn
+    "linkedin_create_post",
+    "linkedin_share_url",
+    "linkedin_get_my_info",
+    # Twitter / X
+    "tweet",
+    "twitter_search",
+    "twitter_get_analytics",
+    # GitHub
+    "github_create_issue",
+    "github_create_pr",
+    "github_star_repo",
+    "github_list_repos",
     # Hacker News — no auth required
     "hackernews_frontpage",
     "hackernews_get_item",
@@ -39,6 +57,24 @@ COMPOSIO_ACTION_MAP = {
     "list_emails": "GMAIL_LIST_EMAILS",
     "create_task": "TODOIST_CREATE_TASK",
     "send_slack_message": "SLACK_SEND_MESSAGE",
+    # Google Sheets
+    "sheets_create_row": "GOOGLESHEETS_CREATE_SPREADSHEET_ROW",
+    "sheets_query": "GOOGLESHEETS_QUERY_TABLE",
+    "sheets_lookup_row": "GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW",
+    "sheets_get_schema": "GOOGLESHEETS_GET_TABLE_SCHEMA",
+    # LinkedIn
+    "linkedin_create_post": "LINKEDIN_CREATE_LINKED_IN_POST",
+    "linkedin_share_url": "LINKEDIN_CREATE_ARTICLE_OR_URL_SHARE",
+    "linkedin_get_my_info": "LINKEDIN_GET_MY_INFO",
+    # Twitter / X
+    "tweet": "TWITTER_CREATION_OF_A_POST",
+    "twitter_search": "TWITTER_RECENT_SEARCH",
+    "twitter_get_analytics": "TWITTER_GET_POST_ANALYTICS",
+    # GitHub
+    "github_create_issue": "GITHUB_CREATE_AN_ISSUE",
+    "github_create_pr": "GITHUB_CREATE_A_PULL_REQUEST",
+    "github_star_repo": "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+    "github_list_repos": "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
     # Hacker News (no auth, direct execution)
     "hackernews_frontpage": "HACKERNEWS_GET_FRONTPAGE",
     "hackernews_get_item": "HACKERNEWS_GET_ITEM_WITH_ID",
@@ -65,6 +101,23 @@ _COMPOSIO_PARAM_MAP: dict[str, dict[str, str]] = {
         "message": "text",
         "body": "text",
         "channel": "channel",
+    },
+    "TWITTER_CREATION_OF_A_POST": {
+        "content": "text",
+        "message": "text",
+        "body": "text",
+    },
+    "LINKEDIN_CREATE_LINKED_IN_POST": {
+        "content": "text",
+        "message": "text",
+        "body": "text",
+    },
+    "GITHUB_CREATE_AN_ISSUE": {
+        "name": "title",
+        "description": "body",
+        "content": "body",
+        "repo": "repo",
+        "owner": "owner",
     },
 }
 

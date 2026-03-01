@@ -11,6 +11,25 @@ ACTION_TO_APP = {
     "create_calendar_event": "googlecalendar",
     "create_task": "todoist",
     "send_slack_message": "slack",
+    # Google Sheets
+    "sheets_create_row": "googlesheets",
+    "sheets_query": "googlesheets",
+    "sheets_lookup_row": "googlesheets",
+    "sheets_get_schema": "googlesheets",
+    # LinkedIn
+    "linkedin_create_post": "linkedin",
+    "linkedin_share_url": "linkedin",
+    "linkedin_get_my_info": "linkedin",
+    # Twitter / X
+    "tweet": "twitter",
+    "twitter_search": "twitter",
+    "twitter_get_analytics": "twitter",
+    # GitHub
+    "github_create_issue": "github",
+    "github_create_pr": "github",
+    "github_star_repo": "github",
+    "github_list_repos": "github",
+    # Hacker News (no auth)
     "hackernews_frontpage": "hackernews",
     "hackernews_get_item": "hackernews",
     "hackernews_latest": "hackernews",
@@ -19,7 +38,10 @@ ACTION_TO_APP = {
 }
 
 # Apps that require OAuth (need auth_config_id)
-OAUTH_APPS = frozenset(["gmail", "googlecalendar", "slack", "todoist"])
+OAUTH_APPS = frozenset([
+    "gmail", "googlecalendar", "slack", "todoist",
+    "googlesheets", "linkedin", "twitter", "github",
+])
 
 # Apps that work without auth (no-auth toolkits)
 NO_AUTH_APPS = frozenset(["hackernews"])
@@ -43,6 +65,10 @@ class ComposioAuthService:
             "googlecalendar": getattr(config, "composio_auth_config_googlecalendar", ""),
             "slack": getattr(config, "composio_auth_config_slack", ""),
             "todoist": getattr(config, "composio_auth_config_todoist", ""),
+            "googlesheets": getattr(config, "composio_auth_config_googlesheets", ""),
+            "linkedin": getattr(config, "composio_auth_config_linkedin", ""),
+            "twitter": getattr(config, "composio_auth_config_twitter", ""),
+            "github": getattr(config, "composio_auth_config_github", ""),
         }
         self._auth_config_ids = {k: v for k, v in mapping.items() if v}
         if self._auth_config_ids:
