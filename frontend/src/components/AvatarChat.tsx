@@ -516,13 +516,18 @@ export default function AvatarChat({
         });
         // Speak the response through the avatar (non-blocking)
         api.synthesizePcmAudio(res.message).then((pcmBuf) => {
-          if (!mountedRef.current) return;
-          const base64 = btoa(
-            String.fromCharCode(...new Uint8Array(pcmBuf))
-          );
-          avatarRef.current?.sendAudioChunk(base64);
-          avatarRef.current?.endSequence();
-        }).catch(() => {});
+          if (!mountedRef.current || !avatarRef.current) return;
+          // Send in ~8KB chunks (4096 samples × 2 bytes) — Anam expects streamed audio
+          const CHUNK_SIZE = 8192;
+          const bytes = new Uint8Array(pcmBuf);
+          for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
+            const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
+            avatarRef.current.sendAudioChunk(chunk);
+          }
+          avatarRef.current.endSequence();
+        }).catch((err) => {
+          console.error("[Chat] TTS → avatar failed:", err);
+        });
       }
 
       if (res.ready && res.workflow) {
