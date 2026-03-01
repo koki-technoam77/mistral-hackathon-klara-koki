@@ -23,6 +23,7 @@ interface Props {
 }
 
 type ConversationStatus =
+  | "idle"
   | "initializing"
   | "connecting"
   | "active"
@@ -60,7 +61,7 @@ export default function AvatarChat({
   isProcessing,
   setIsProcessing,
 }: Props) {
-  const [status, setStatus] = useState<ConversationStatus>("initializing");
+  const [status, setStatus] = useState<ConversationStatus>("idle");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [levelUpFlash, setLevelUpFlash] = useState(false);
@@ -209,7 +210,12 @@ export default function AvatarChat({
           if (mountedRef.current) setIsSpeaking(false);
         },
         onDisconnect: () => {
-          if (mountedRef.current) setStatus("disconnected");
+          if (mountedRef.current) {
+            avatarRef.current?.disconnect();
+            avatarRef.current = null;
+            initStartedRef.current = false;
+            setStatus("idle");
+          }
         },
         onError: (err) => {
           console.error("[Avatar] ElevenLabs error:", err);
@@ -228,15 +234,16 @@ export default function AvatarChat({
     }
   }, [onNewMessage, onWorkflowReady, onCharacterUpdate]);
 
-  // Auto-start on mount
+  // Cleanup on unmount (only if avatar was started)
   useEffect(() => {
-    startConversation();
     return () => {
-      stopElevenLabs();
-      avatarRef.current?.disconnect();
-      avatarRef.current = null;
+      if (avatarRef.current) {
+        stopElevenLabs();
+        avatarRef.current.disconnect();
+        avatarRef.current = null;
+      }
     };
-  }, [startConversation]);
+  }, []);
 
   // ─── Retry connection ──────────────────────────────────────────────────────
 
@@ -245,7 +252,6 @@ export default function AvatarChat({
     avatarRef.current?.disconnect();
     avatarRef.current = null;
     initStartedRef.current = false;
-    setStatus("initializing");
     setError(null);
     startConversation();
   }, [startConversation]);
@@ -632,6 +638,7 @@ export default function AvatarChat({
   // ─── Status config ────────────────────────────────────────────────────────
 
   const statusConfig = {
+    idle: { color: "bg-gray-500", label: "Text Only" },
     initializing: { color: "bg-gray-500", label: "Initializing..." },
     connecting: { color: "bg-yellow-500 animate-pulse", label: "Connecting..." },
     active: { color: "bg-emerald-500", label: "Conversation Active" },
@@ -669,9 +676,27 @@ export default function AvatarChat({
           )}
         </AnimatePresence>
 
-        {/* Connecting / Error overlay */}
+        {/* Idle / Connecting / Error overlay */}
         {status !== "active" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950/80 backdrop-blur-sm z-20">
+            {status === "idle" && (
+              <div className="text-center px-6">
+                <button
+                  onClick={startConversation}
+                  className="w-20 h-20 rounded-full bg-indigo-600/30 border-2 border-indigo-500/50 flex items-center justify-center mx-auto mb-4 hover:bg-indigo-600/50 hover:border-indigo-400 transition-colors cursor-pointer"
+                >
+                  <svg viewBox="0 0 24 24" className="w-10 h-10 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15a3 3 0 01-3-3V6a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                </button>
+                <p className="text-indigo-300 text-sm font-medium mb-1">
+                  Start Voice Conversation
+                </p>
+                <p className="text-gray-500 text-xs">
+                  Or use text chat below
+                </p>
+              </div>
+            )}
             {(status === "initializing" || status === "connecting") && (
               <motion.div
                 animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
@@ -716,11 +741,13 @@ export default function AvatarChat({
           </div>
         )}
 
-        {/* Status badge */}
-        <div className="absolute top-3 left-3 flex items-center gap-2 bg-gray-900/80 backdrop-blur rounded-full px-3 py-1.5 z-30">
-          <div className={`w-2 h-2 rounded-full ${statusInfo.color}`} />
-          <span className="text-xs text-gray-300">{statusInfo.label}</span>
-        </div>
+        {/* Status badge (hidden in idle) */}
+        {status !== "idle" && (
+          <div className="absolute top-3 left-3 flex items-center gap-2 bg-gray-900/80 backdrop-blur rounded-full px-3 py-1.5 z-30">
+            <div className={`w-2 h-2 rounded-full ${statusInfo.color}`} />
+            <span className="text-xs text-gray-300">{statusInfo.label}</span>
+          </div>
+        )}
 
         {/* Speaking indicator */}
         <AnimatePresence>
@@ -768,7 +795,8 @@ export default function AvatarChat({
               stopElevenLabs();
               avatarRef.current?.disconnect();
               avatarRef.current = null;
-              setStatus("disconnected");
+              initStartedRef.current = false;
+              setStatus("idle");
             }}
             className="absolute top-3 right-3 bg-red-600/80 hover:bg-red-500 backdrop-blur rounded-full px-3 py-1.5 text-white text-xs font-semibold transition-colors z-30"
           >

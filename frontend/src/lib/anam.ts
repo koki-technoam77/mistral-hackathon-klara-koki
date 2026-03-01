@@ -5,8 +5,8 @@
  */
 
 export interface AnamAvatarHandle {
-  /** Send a base64-encoded PCM audio chunk for lip-sync */
-  sendAudioChunk: (audioBase64: string) => void;
+  /** Send a PCM audio chunk for lip-sync (base64 string, ArrayBuffer, or Uint8Array) */
+  sendAudioChunk: (audioData: ArrayBuffer | Uint8Array | string) => void;
   /** Signal end of the current audio sequence */
   endSequence: () => void;
   /** Interrupt the current persona animation */
@@ -45,8 +45,8 @@ export async function initAnamAvatar(
   });
 
   return {
-    sendAudioChunk: (audioBase64: string) => {
-      audioInputStream.sendAudioChunk(audioBase64);
+    sendAudioChunk: (audioData: ArrayBuffer | Uint8Array | string) => {
+      audioInputStream.sendAudioChunk(audioData);
     },
     endSequence: () => {
       audioInputStream.endSequence();
