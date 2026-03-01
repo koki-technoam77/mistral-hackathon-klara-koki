@@ -8,7 +8,6 @@ import { initAnamAvatar, type AnamAvatarHandle } from "@/lib/anam";
 import {
   connectElevenLabs,
   stopElevenLabs,
-  isElevenLabsConnected,
 } from "@/lib/elevenlabs-agent";
 
 interface Props {
@@ -236,42 +235,70 @@ export default function AvatarChat({
     onExecutionStart();
 
     try {
-      const result = await api.executeWorkflow(workflow);
-      onExecutionComplete(result);
-      onCharacterUpdate(result.character_state);
-
-      const didLevelUp = result.xp_result.level_up;
-      const xpContent = didLevelUp
-        ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
-        : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
-
-      onNewMessage({
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: xpContent,
-        timestamp: new Date(),
-      });
-
-      if (didLevelUp) setLevelUpFlash(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      onExecutionComplete({
-        execution: {
-          id: crypto.randomUUID(),
-          workflow,
-          status: "failed" as const,
-          step_results: {},
-          created_at: new Date().toISOString(),
+      await api.executeWorkflowStream(
+        workflow,
+        sessionIdRef.current ?? "default",
+        (stepId) => {
+          // Step started
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Running step: ${stepId}...`,
+            timestamp: new Date(),
+          });
         },
-        xp_result: { xp_earned: 0, level_up: false },
-        character_state: null as unknown as CharacterState,
-      });
-      onNewMessage({
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: `Execution error: ${msg}`,
-        timestamp: new Date(),
-      });
+        (_stepId, status) => {
+          // Step completed — visual update handled by WorkflowVisualizer
+          if (status === "error") {
+            onNewMessage({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: `Step ${_stepId} failed`,
+              timestamp: new Date(),
+            });
+          }
+        },
+        (result) => {
+          // Done
+          onExecutionComplete(result);
+          onCharacterUpdate(result.character_state);
+
+          const didLevelUp = result.xp_result.level_up;
+          const xpContent = didLevelUp
+            ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
+            : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
+
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: xpContent,
+            timestamp: new Date(),
+          });
+
+          if (didLevelUp) setLevelUpFlash(true);
+          playNotificationSound();
+        },
+        (err) => {
+          // Error
+          onExecutionComplete({
+            execution: {
+              id: crypto.randomUUID(),
+              workflow,
+              status: "failed" as const,
+              step_results: {},
+              created_at: new Date().toISOString(),
+            },
+            xp_result: { xp_earned: 0, level_up: false },
+            character_state: null as unknown as CharacterState,
+          });
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Execution error: ${err.message}`,
+            timestamp: new Date(),
+          });
+        }
+      );
     } finally {
       setIsExecuting(false);
     }

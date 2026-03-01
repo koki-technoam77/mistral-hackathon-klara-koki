@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # ElevenLabs Conversational AI Agent
     elevenlabs_agent_id: str = ""
 
+    # Character persistence
+    character_storage_dir: str = "/tmp/kotoflow_characters"
+
     # Multi-AI Provider OAuth Settings
     anthropic_api_key: str = ""
     openai_api_key: str = ""

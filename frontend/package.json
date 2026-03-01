@@ -10,7 +10,6 @@
   "dependencies": {
     "@anam-ai/js-sdk": "^4.10.0",
     "@xyflow/react": "^12.0.0",
-    "chatdio": "^1.2.4",
     "framer-motion": "^11.0.0",
     "next": "^15.0.0",
     "react": "^19.0.0",

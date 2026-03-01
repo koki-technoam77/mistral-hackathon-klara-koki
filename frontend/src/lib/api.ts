@@ -340,6 +340,36 @@ export async function cancelScheduledJob(jobId: string): Promise<{ status: strin
   });
 }
 
+// ─── Webhook Triggers ────────────────────────────────────────────────────────
+
+export interface WebhookInfo {
+  webhook_id: string;
+  workflow_name: string;
+  entity_id: string;
+  url: string;
+}
+
+export async function registerWebhook(
+  workflow: WorkflowDefinition,
+  sessionId: string = "default"
+): Promise<{ webhook_id: string; url: string }> {
+  return apiFetch<{ webhook_id: string; url: string }>("/webhook/register", {
+    method: "POST",
+    body: JSON.stringify({ workflow, session_id: sessionId }),
+  });
+}
+
+export async function listWebhooks(sessionId?: string): Promise<{ webhooks: WebhookInfo[] }> {
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return apiFetch<{ webhooks: WebhookInfo[] }>(`/webhooks${qs}`);
+}
+
+export async function deleteWebhook(webhookId: string): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/webhook/${encodeURIComponent(webhookId)}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<{ status: string }> {

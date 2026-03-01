@@ -64,13 +64,13 @@ def trace_feedback(
         "timestamp": time.time(),
         "original": workflow,
     }
-    if feedback_type == "edited" and edited:
+    if feedback_type in ("edit", "edited") and edited:
         record["edited"] = edited
     return record
 
 
 class FeedbackCollector:
-    def __init__(self, output_path: str = "feedback_data.jsonl"):
+    def __init__(self, output_path: str = "/tmp/kotoflow_feedback.jsonl"):
         self.output_path = output_path
 
     def save_chosen(self, user_request: str, workflow: dict[str, Any]) -> None:
@@ -86,12 +86,12 @@ class FeedbackCollector:
         feedback_type: str, edited: dict[str, Any] | None = None,
     ) -> None:
         trace_feedback(workflow, feedback_type, edited)
-        if feedback_type == "approved":
+        if feedback_type == "accept":
             self.save_chosen(user_request, workflow)
-        elif feedback_type == "edited" and edited:
+        elif feedback_type == "edit" and edited:
             self.save_chosen(user_request, edited)
             self.save_rejected(user_request, workflow)
-        elif feedback_type == "rejected":
+        elif feedback_type == "reject":
             self.save_rejected(user_request, workflow)
 
     def _append(self, record: dict[str, Any]) -> None:

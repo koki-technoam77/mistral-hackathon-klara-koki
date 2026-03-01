@@ -104,7 +104,7 @@ def _get_services():
     if _voice_service is None:
         _voice_service = VoiceService(settings)
     if _character_service is None:
-        _character_service = CharacterService()
+        _character_service = CharacterService(storage_dir=settings.character_storage_dir)
     if _ai_team is None:
         _ai_team = AITeamOrchestrator(settings)
     if _anam_service is None:
@@ -687,6 +687,77 @@ async def workflow_schedule_cancel(job_id: str):
     if not scheduler.cancel(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "cancelled", "job_id": job_id}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Webhook Trigger Endpoint
+# ──────────────────────────────────────────────────────────────────
+
+_webhook_workflows: dict[str, tuple[WorkflowDefinition, str]] = {}  # webhook_id -> (workflow, entity_id)
+_MAX_WEBHOOKS = 100
+
+
+class RegisterWebhookRequest(BaseModel):
+    workflow: WorkflowDefinition
+    session_id: str = "default"
+
+
+@router.post("/webhook/register", dependencies=[Depends(_verify_api_key)])
+async def register_webhook(request: RegisterWebhookRequest):
+    """Register a workflow to be triggered via webhook. Returns a webhook URL."""
+    if len(_webhook_workflows) >= _MAX_WEBHOOKS:
+        raise HTTPException(status_code=429, detail="Maximum webhooks reached")
+
+    webhook_id = str(uuid4())
+    _webhook_workflows[webhook_id] = (request.workflow, request.session_id)
+    return {"webhook_id": webhook_id, "url": f"/api/webhook/{webhook_id}"}
+
+
+@router.post("/webhook/{webhook_id}")
+async def trigger_webhook(webhook_id: str, request: Request):
+    """Fire a webhook-triggered workflow. No auth required (webhook is the secret)."""
+    entry = _webhook_workflows.get(webhook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    workflow, entity_id = entry
+    services = _get_services()
+    executor: WorkflowExecutor = services["workflow_executor"]
+
+    try:
+        execution = await executor.execute(workflow, entity_id=entity_id)
+        return {
+            "status": execution.status.value,
+            "step_results": execution.step_results,
+        }
+    except Exception:
+        logger.error("Webhook execution failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Webhook execution failed")
+
+
+@router.get("/webhooks", dependencies=[Depends(_verify_api_key)])
+async def list_webhooks(session_id: Optional[str] = None):
+    """List registered webhooks."""
+    results = []
+    for wh_id, (wf, eid) in _webhook_workflows.items():
+        if session_id and eid != session_id:
+            continue
+        results.append({
+            "webhook_id": wh_id,
+            "workflow_name": wf.name,
+            "entity_id": eid,
+            "url": f"/api/webhook/{wh_id}",
+        })
+    return {"webhooks": results}
+
+
+@router.delete("/webhook/{webhook_id}", dependencies=[Depends(_verify_api_key)])
+async def delete_webhook(webhook_id: str):
+    """Unregister a webhook."""
+    if webhook_id not in _webhook_workflows:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    del _webhook_workflows[webhook_id]
+    return {"status": "deleted", "webhook_id": webhook_id}
 
 
 @router.get("/health", response_model=HealthResponse)
