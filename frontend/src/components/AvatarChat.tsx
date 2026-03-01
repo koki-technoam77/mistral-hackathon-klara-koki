@@ -77,6 +77,7 @@ export default function AvatarChat({
   const initStartedRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const lastChatCallRef = useRef(0); // Rate limiting: min 2s between chat calls
+  const workflowReadyRef = useRef(false); // Guard: skip chat calls once workflow is ready
 
   useEffect(() => {
     mountedRef.current = true;
@@ -138,6 +139,8 @@ export default function AvatarChat({
             content: text,
             timestamp: new Date(),
           });
+          // Skip backend chat calls once a workflow is ready (prevents duplicates)
+          if (workflowReadyRef.current) return;
           // Rate-limited: send transcript to backend for workflow detection
           const now = Date.now();
           if (now - lastChatCallRef.current < 2000) return; // Min 2s between calls
@@ -149,6 +152,7 @@ export default function AvatarChat({
               if (res.session_id) sessionIdRef.current = res.session_id;
               onCharacterUpdate(res.character_state);
               if (res.ready && res.workflow) {
+                workflowReadyRef.current = true; // Stop further chat calls
                 onWorkflowReady(res.workflow);
                 setWorkflowReady(true);
                 playNotificationSound();
@@ -251,6 +255,16 @@ export default function AvatarChat({
   const handleRunWorkflow = async () => {
     const workflow = currentWorkflow;
     if (!workflow || isExecuting) return;
+    // Block execution when services still need connection
+    if (needsConnectionApp) {
+      onNewMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `Please connect ${needsConnectionApp} first before running this workflow.`,
+        timestamp: new Date(),
+      });
+      return;
+    }
     setIsExecuting(true);
     onExecutionStart();
 
@@ -349,6 +363,7 @@ export default function AvatarChat({
       );
     } finally {
       setIsExecuting(false);
+      workflowReadyRef.current = false; // Allow new workflow generation
     }
   };
 
@@ -455,11 +470,13 @@ export default function AvatarChat({
           setIsConnecting(false);
         }, 300_000);
       }
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error("[Connect] OAuth initiation failed:", detail);
       onNewMessage({
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `Failed to start ${appName} connection. Please try again.`,
+        content: `Failed to start ${appName} connection: ${detail}`,
         timestamp: new Date(),
       });
       setIsConnecting(false);
@@ -509,6 +526,7 @@ export default function AvatarChat({
       }
 
       if (res.ready && res.workflow) {
+        workflowReadyRef.current = true; // Stop further chat calls
         onWorkflowReady(res.workflow);
         setWorkflowReady(true);
         playNotificationSound();
@@ -834,7 +852,7 @@ export default function AvatarChat({
             </div>
             <button
               onClick={handleRunWorkflow}
-              disabled={isExecuting}
+              disabled={isExecuting || !!needsConnectionApp}
               className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
             >
               {isExecuting ? (

@@ -668,7 +668,8 @@ async def composio_connect(request: ComposioConnectRequest):
         redirect_url=request.redirect_url,
     )
     if result.get("status") == "error":
-        raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
+        logger.warning("Composio connect error for %s: %s", request.app_name, result.get("error"))
+        raise HTTPException(status_code=400, detail=result.get("error", "OAuth initiation failed"))
     return result
 
 

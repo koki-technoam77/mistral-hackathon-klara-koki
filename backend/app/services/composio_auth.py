@@ -130,7 +130,7 @@ class ComposioAuthService:
         return results
 
     async def initiate_connection(self, entity_id: str, app_name: str, redirect_url: str) -> dict:
-        """Start OAuth flow for a specific app using auth_config_id. Returns redirect URL."""
+        """Start OAuth flow for a specific app. Returns redirect URL."""
         if not self._toolset:
             return {"status": "error", "error": "Composio not configured"}
 
@@ -138,23 +138,50 @@ class ComposioAuthService:
             return {"status": "error", "error": f"Unsupported app: {app_name}"}
 
         auth_config_id = self._auth_config_ids.get(app_name)
-        if not auth_config_id:
-            return {
-                "status": "error",
-                "error": f"No Auth Config ID set for {app_name}. "
-                         f"Set COMPOSIO_AUTH_CONFIG_{app_name.upper()} env var.",
-            }
+        logger.info(
+            "Initiating Composio connection: app=%s, entity=%s, auth_config_id=%s",
+            app_name, entity_id, auth_config_id or "(none)",
+        )
 
-        try:
-            entity = self._toolset.get_entity(id=entity_id)
-            logger.info(
-                "Initiating Composio connection: app=%s, entity=%s, auth_config_id=%s",
-                app_name, entity_id, auth_config_id,
-            )
-            connection_request = None
+        errors: list[str] = []
+        connection_request = None
 
-            # Try 1: treat auth_config_id as an integration ID
+        # Try 1: auth_config_id is an integration ID in Composio's API.
+        # Call connected_accounts.initiate directly (skips integration creation).
+        if auth_config_id and connection_request is None:
             try:
+                connection_request = await asyncio.to_thread(
+                    self._toolset.client.connected_accounts.initiate,
+                    integration_id=auth_config_id,
+                    entity_id=entity_id,
+                    redirect_url=redirect_url,
+                )
+                logger.info("Try 1 (direct initiate) succeeded for %s", app_name)
+            except Exception as e:
+                msg = f"Try 1 (direct connected_accounts.initiate) failed for {app_name}: {repr(e)}"
+                logger.warning(msg, exc_info=True)
+                errors.append(msg)
+
+        # Try 2: use Composio's built-in OAuth (creates a new integration automatically).
+        if connection_request is None:
+            try:
+                entity = self._toolset.get_entity(id=entity_id)
+                connection_request = await asyncio.to_thread(
+                    entity.initiate_connection,
+                    app_name=app_name,
+                    redirect_url=redirect_url,
+                    use_composio_auth=True,
+                )
+                logger.info("Try 2 (use_composio_auth) succeeded for %s", app_name)
+            except Exception as e:
+                msg = f"Try 2 (use_composio_auth=True) failed for {app_name}: {repr(e)}"
+                logger.warning(msg, exc_info=True)
+                errors.append(msg)
+
+        # Try 3: fetch integration model by ID and pass it explicitly.
+        if auth_config_id and connection_request is None:
+            try:
+                entity = self._toolset.get_entity(id=entity_id)
                 integration = await asyncio.to_thread(
                     self._toolset.client.integrations.get,
                     id=auth_config_id,
@@ -165,45 +192,27 @@ class ComposioAuthService:
                     integration=integration,
                     redirect_url=redirect_url,
                 )
+                logger.info("Try 3 (integration model) succeeded for %s", app_name)
             except Exception as e:
-                logger.warning(
-                    "Integration fetch failed for %s (id=%s): %s — trying use_composio_auth",
-                    app_name, auth_config_id, e,
-                )
+                msg = f"Try 3 (integrations.get + initiate) failed for {app_name}: {repr(e)}"
+                logger.warning(msg, exc_info=True)
+                errors.append(msg)
 
-            # Try 2: fall back to Composio's built-in OAuth
-            if connection_request is None:
-                try:
-                    connection_request = await asyncio.to_thread(
-                        entity.initiate_connection,
-                        app_name=app_name,
-                        redirect_url=redirect_url,
-                        use_composio_auth=True,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "use_composio_auth failed for %s: %s — trying auth_config dict",
-                        app_name, e,
-                    )
-
-            # Try 3: pass auth_config_id inside auth_config dict
-            if connection_request is None:
-                connection_request = await asyncio.to_thread(
-                    entity.initiate_connection,
-                    app_name=app_name,
-                    auth_config={"auth_config_id": auth_config_id},
-                    redirect_url=redirect_url,
-                    use_composio_auth=False,
-                )
-
+        if connection_request is None:
+            error_detail = "; ".join(errors) if errors else "No auth_config_id configured"
+            logger.error(
+                "All OAuth initiation methods failed for %s: %s", app_name, error_detail,
+            )
             return {
-                "status": "pending",
-                "redirect_url": connection_request.redirectUrl,
-                "connected_account_id": connection_request.connectedAccountId,
+                "status": "error",
+                "error": f"OAuth initiation failed for {app_name}: {error_detail}",
             }
-        except Exception as e:
-            logger.error("Failed to initiate Composio connection for %s: %s", app_name, e, exc_info=True)
-            return {"status": "error", "error": f"Connection failed: {type(e).__name__}"}
+
+        return {
+            "status": "pending",
+            "redirect_url": connection_request.redirectUrl,
+            "connected_account_id": connection_request.connectedAccountId,
+        }
 
     async def check_connection_status(self, entity_id: str, app_name: str) -> dict:
         """Check if a specific app is connected for this entity."""
