@@ -14,6 +14,7 @@ interface Props {
   messages: Message[];
   onNewMessage: (msg: Message) => void;
   onWorkflowReady: (workflow: WorkflowDefinition) => void;
+  onWorkflowUpdate?: (workflow: WorkflowDefinition) => void;
   onCharacterUpdate: (state: CharacterState) => void;
   onExecutionStart: () => void;
   onExecutionComplete: (result: Awaited<ReturnType<typeof api.executeWorkflow>>) => void;
@@ -54,6 +55,7 @@ export default function AvatarChat({
   messages,
   onNewMessage,
   onWorkflowReady,
+  onWorkflowUpdate,
   onCharacterUpdate,
   onExecutionStart,
   onExecutionComplete,
@@ -404,6 +406,44 @@ export default function AvatarChat({
         timestamp: new Date(),
       });
     }
+  };
+
+  // ─── Edit workflow params ────────────────────────────────────────────────
+  const [showParamEditor, setShowParamEditor] = useState(false);
+
+  // Editable param keys per action type
+  const EDITABLE_PARAMS: Record<string, string[]> = {
+    send_email: ["to", "recipient", "recipient_email", "subject", "body"],
+    send_slack_message: ["channel", "message", "text"],
+    create_calendar_event: ["title", "start", "end"],
+    tweet: ["content", "text"],
+    linkedin_create_post: ["content", "text"],
+    github_create_issue: ["title", "body", "repo", "owner"],
+    llm_summarize: ["content", "style"],
+    web_search: ["query"],
+    sheets_create_row: ["spreadsheet_id", "data"],
+  };
+
+  const getEditableParams = (step: { action: string; params: Record<string, unknown> }) => {
+    const allowed = EDITABLE_PARAMS[step.action];
+    return Object.entries(step.params).filter(([key, val]) => {
+      if (typeof val !== "string") return false;
+      // Show param if it's in the allowed list, or if it looks like a user-facing value
+      if (allowed?.includes(key)) return true;
+      // Also show any param that looks like an email, URL, or user input
+      return ["to", "email", "recipient", "subject", "channel", "query", "title", "name"].includes(key);
+    }) as [string, string][];
+  };
+
+  const handleParamChange = (stepIndex: number, paramKey: string, newValue: string) => {
+    if (!currentWorkflow || !onWorkflowUpdate) return;
+    const updated = {
+      ...currentWorkflow,
+      steps: currentWorkflow.steps.map((step, i) =>
+        i === stepIndex ? { ...step, params: { ...step.params, [paramKey]: newValue } } : step
+      ),
+    };
+    onWorkflowUpdate(updated);
   };
 
   // ─── Inline Composio connection prompt ──────────────────────────────────
@@ -886,6 +926,17 @@ export default function AvatarChat({
               <p className="text-xs text-gray-500">{currentWorkflow.steps.length} steps</p>
             </div>
             <button
+              onClick={() => setShowParamEditor((v) => !v)}
+              className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                showParamEditor
+                  ? "bg-amber-600 text-white"
+                  : "bg-gray-700 hover:bg-gray-600 text-gray-300"
+              }`}
+              title="Edit workflow parameters"
+            >
+              Edit
+            </button>
+            <button
               onClick={handleRunWorkflow}
               disabled={isExecuting || !!needsConnectionApp}
               className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
@@ -941,6 +992,48 @@ export default function AvatarChat({
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Param editor panel */}
+      <AnimatePresence>
+        {showParamEditor && currentWorkflow && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-gray-700 bg-gray-900/95 overflow-hidden shrink-0"
+          >
+            <div className="max-h-48 overflow-y-auto px-4 py-2 space-y-3">
+              {currentWorkflow.steps.map((step, stepIdx) => {
+                const editable = getEditableParams(step);
+                if (editable.length === 0) return null;
+                return (
+                  <div key={step.id}>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+                      {step.action.replace(/_/g, " ")}
+                    </p>
+                    <div className="space-y-1.5">
+                      {editable.map(([key, val]) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <label className="text-xs text-gray-400 w-20 shrink-0 text-right">
+                            {key}
+                          </label>
+                          <input
+                            type="text"
+                            value={val}
+                            onChange={(e) => handleParamChange(stepIdx, key, e.target.value)}
+                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
         )}

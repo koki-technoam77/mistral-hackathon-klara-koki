@@ -346,6 +346,7 @@ export default function Home() {
               messages={messages}
               onNewMessage={handleNewMessage}
               onWorkflowReady={handleWorkflowReady}
+              onWorkflowUpdate={setCurrentWorkflow}
               onCharacterUpdate={handleCharacterUpdate}
               onExecutionStart={handleExecutionStart}
               onExecutionComplete={handleExecutionComplete}
