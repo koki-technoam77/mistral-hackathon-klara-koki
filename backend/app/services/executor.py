@@ -262,6 +262,23 @@ class WorkflowExecutor:
         # Normalize param keys for Composio's expected format
         normalized = self._normalize_composio_params(composio_action, params)
 
+        # Handle "me" as recipient: resolve to authenticated user's Gmail address
+        if composio_action == "GMAIL_SEND_EMAIL" and normalized.get("recipient_email", "").strip().lower() == "me":
+            try:
+                profile = await asyncio.to_thread(
+                    self._composio_toolset.execute_action,
+                    action="GMAIL_GET_PROFILE",
+                    params={},
+                    entity_id=entity_id,
+                )
+                if isinstance(profile, dict) and profile.get("data"):
+                    email = profile["data"].get("emailAddress", "")
+                    if email:
+                        normalized["recipient_email"] = email
+                        logger.info("Resolved 'me' recipient to %s", email)
+            except Exception:
+                logger.warning("Could not resolve 'me' to email address", exc_info=True)
+
         try:
             logger.info(
                 "Executing Composio action: %s (entity=%s, params=%s)",
@@ -576,15 +593,51 @@ class WorkflowExecutor:
         return normalized
 
     def _resolve_path(self, keys: list[str], context: dict) -> Any:
-        current = context.get("previous_results", {})
+        previous = context.get("previous_results", {})
 
-        for key in keys:
-            if isinstance(current, dict):
-                current = current.get(key)
+        # 1. Try full dot-joined key first (matches step.output storage format:
+        #    step_results[f"{step.id}.{step.output}"] = result)
+        full_key = ".".join(keys)
+        if full_key in previous:
+            val = previous[full_key]
+            if isinstance(val, dict):
+                return self._extract_content(val)
+            return val
+
+        # 2. Nested traversal: step_results["step_id"]["key"]
+        current = previous
+        for i, key in enumerate(keys):
+            if not isinstance(current, dict):
+                return None
+            if key in current:
+                current = current[key]
+            elif i == len(keys) - 1:
+                # Last key not found — extract content as fallback
+                return self._extract_content(current)
             else:
                 return None
-
             if current is None:
                 return None
 
+        # If final value is a result dict, extract the meaningful content
+        if isinstance(current, dict):
+            return self._extract_content(current)
         return current
+
+    @staticmethod
+    def _extract_content(result: dict) -> Any:
+        """Extract meaningful content from a step result dict.
+
+        Step handlers return dicts like {"status": "success", "summary": "..."}
+        or {"status": "success", "result": <data>}. This method returns the
+        actual content value, skipping metadata keys.
+        """
+        for key in ("summary", "result", "results", "text", "content", "data", "response"):
+            if key in result and result[key] is not None:
+                return result[key]
+        # Return the dict without status/error metadata
+        filtered = {
+            k: v for k, v in result.items()
+            if k not in ("status", "action", "composio_action", "error", "needs_connection", "app")
+        }
+        return filtered if filtered else result

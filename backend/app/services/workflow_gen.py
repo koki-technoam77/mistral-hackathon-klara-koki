@@ -59,25 +59,35 @@ WORKFLOW_SCHEMA = {
 }
 
 EXAMPLE_WORKFLOW = {
-    "name": "Daily Trend Summary",
-    "description": "Fetch trending topics and summarize them",
+    "name": "Daily HN Digest Email",
+    "description": "Fetch top Hacker News posts and email a summary",
     "trigger": {"type": "schedule", "cron": "0 9 * * *"},
     "steps": [
         {
-            "id": "step_1",
-            "action": "web_search",
-            "params": {"query": "trending AI news"},
-            "output": "search_results",
+            "id": "fetch_hn",
+            "action": "hackernews_frontpage",
+            "params": {},
+            "output": "posts",
         },
         {
-            "id": "step_2",
+            "id": "summarize",
             "action": "llm_summarize",
             "params": {
-                "content": "{{step_1.search_results}}",
+                "content": "{{fetch_hn.posts}}",
                 "style": "professional",
             },
-            "output": "summary",
-            "depends_on": ["step_1"],
+            "output": "digest",
+            "depends_on": ["fetch_hn"],
+        },
+        {
+            "id": "email",
+            "action": "send_email",
+            "params": {
+                "to": "me",
+                "subject": "Daily Hacker News Digest",
+                "body": "{{summarize.digest}}",
+            },
+            "depends_on": ["summarize"],
         },
     ],
 }
@@ -187,8 +197,23 @@ Example workflow:
 Rules:
 - Each step must have a unique id
 - Steps can depend on previous steps via depends_on
-- Use template syntax {{{{step_id.output}}}} to reference previous outputs
-- Actions: web_search, ocr, llm_summarize, api_call, browser_action, send_email, send_slack_message, create_calendar_event, sheets_create_row, sheets_query, sheets_lookup_row, linkedin_create_post, linkedin_share_url, tweet, twitter_search, github_create_issue, github_create_pr, github_list_repos, gemini_generate, gemini_generate_image, hackernews_frontpage, hackernews_latest, hackernews_today, hackernews_get_item
+- Use template syntax {{{{step_id.output_name}}}} to reference previous step outputs. The output_name must match the step's "output" field.
+- Actions and their output keys:
+  - web_search (params: query) → output key: results
+  - llm_summarize (params: content, style) → output key: summary
+  - ocr (params: url) → output key: text
+  - api_call (params: url, method, headers, body) → output key: response
+  - hackernews_frontpage, hackernews_latest, hackernews_today, hackernews_get_item → output key: result
+  - gemini_generate, gemini_generate_image → output key: result
+  - send_email (params: to, subject, body) — terminal step
+  - send_slack_message (params: channel, message) — terminal step
+  - create_calendar_event (params: title, start, end) — terminal step
+  - sheets_create_row, sheets_query, sheets_lookup_row → output key: result
+  - linkedin_create_post, linkedin_share_url → output key: result
+  - tweet, twitter_search → output key: result
+  - github_create_issue, github_create_pr, github_list_repos → output key: result
+  - browser_action (params: action, url, selector, text) → output key: result
+- IMPORTANT: When a user connects a service via OAuth (e.g. Gmail), the system already has access. Do NOT require the user's email address as a parameter — use "me" as the recipient for self-addressed emails.
 - Trigger types: schedule (needs cron), webhook (needs webhook_url), manual
 - Do not include any text outside JSON
 - Step count must not exceed 10
