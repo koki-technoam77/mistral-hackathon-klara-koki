@@ -243,27 +243,16 @@ class WorkflowExecutor:
             self._init_composio()
 
         if not self._composio_toolset:
-            # Demo-friendly mock: show what would be executed
             has_key = bool(self.config.composio_api_key)
             logger.warning(
-                "Composio SDK not available for '%s' (api_key_set=%s). Using demo mock.",
+                "Composio SDK not available for '%s' (api_key_set=%s).",
                 step.action, has_key,
             )
-            demo_detail = ""
-            if step.action == "send_email":
-                to = params.get("to", params.get("recipient", "N/A"))
-                subject = params.get("subject", "N/A")
-                body = str(params.get("body", ""))[:200]
-                demo_detail = f" | To: {to}, Subject: {subject}, Body preview: {body}..."
-            elif step.action == "send_slack_message":
-                channel = params.get("channel", "N/A")
-                demo_detail = f" | Channel: {channel}"
-            logger.info("Demo mock: %s%s", step.action, demo_detail)
             return {
-                "status": "success",
-                "action": step.action,
-                "params": params,
-                "result": f"[Demo] {step.action} completed successfully{demo_detail}",
+                "status": "error",
+                "error": "Service not configured. Composio API key may be missing.",
+                "needs_connection": True,
+                "app": step.action,
             }
 
         composio_action = COMPOSIO_ACTION_MAP.get(step.action)

@@ -459,13 +459,29 @@ async def workflow_execute_stream(request: WorkflowExecuteRequest):
                     step_results[f"{step.id}.{step.output}"] = result
                 executed_steps.add(step.id)
 
-                yield f"data: {json.dumps({'type': 'step_complete', 'step_id': step.id, 'status': 'success'})}\n\n"
+                # Report real status — check if the step actually failed
+                step_status = "success"
+                if isinstance(result, dict) and result.get("status") == "error":
+                    step_status = "error"
+                yield f"data: {json.dumps({'type': 'step_complete', 'step_id': step.id, 'status': step_status, 'detail': result.get('error', '') if isinstance(result, dict) else ''})}\n\n"
             except Exception:
                 yield f"data: {json.dumps({'type': 'step_error', 'step_id': step.id})}\n\n"
 
-        xp_result = services["character_service"].award_xp(
-            request.workflow, session_id=request.session_id
+        # Determine overall status — failed if any step errored
+        has_errors = any(
+            isinstance(r, dict) and r.get("status") == "error"
+            for r in step_results.values()
         )
+        overall_status = "failed" if has_errors else "completed"
+
+        # Only award XP if all steps succeeded
+        if overall_status == "completed":
+            xp_result = services["character_service"].award_xp(
+                request.workflow, session_id=request.session_id
+            )
+        else:
+            xp_result = {"xp_earned": 0, "level_up": False}
+
         character_state = services["character_service"].get_state(request.session_id)
 
         done_payload = {
@@ -473,7 +489,7 @@ async def workflow_execute_stream(request: WorkflowExecuteRequest):
             "result": WorkflowExecuteResponse(
                 execution=WorkflowExecution(
                     workflow=request.workflow,
-                    status="completed",
+                    status=overall_status,
                     step_results=step_results,
                 ),
                 xp_result=xp_result,

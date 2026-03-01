@@ -248,13 +248,15 @@ export default function AvatarChat({
             timestamp: new Date(),
           });
         },
-        (_stepId, status) => {
-          // Step completed — visual update handled by WorkflowVisualizer
+        (_stepId, status, detail) => {
+          // Step completed — show errors clearly
           if (status === "error") {
             onNewMessage({
               id: crypto.randomUUID(),
               role: "assistant",
-              content: `Step ${_stepId} failed`,
+              content: detail
+                ? `Step "${_stepId}" failed: ${detail}`
+                : `Step "${_stepId}" failed.`,
               timestamp: new Date(),
             });
           }
@@ -280,12 +282,21 @@ export default function AvatarChat({
           onExecutionComplete(result);
           if (result.character_state) onCharacterUpdate(result.character_state);
 
-          const didLevelUp = result.xp_result?.level_up;
-          const xpContent = didLevelUp
-            ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
-            : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
+          if (needsConnect) {
+            // Already showed connect message above — skip XP
+          } else if (result.execution?.status === "failed") {
+            onNewMessage({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "Some steps failed. Check the errors above and try again.",
+              timestamp: new Date(),
+            });
+          } else {
+            const didLevelUp = result.xp_result?.level_up;
+            const xpContent = didLevelUp
+              ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
+              : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
 
-          if (!needsConnect) {
             onNewMessage({
               id: crypto.randomUUID(),
               role: "assistant",
