@@ -148,13 +148,20 @@ class ComposioAuthService:
         try:
             entity = self._toolset.get_entity(id=entity_id)
             logger.info(
-                "Initiating Composio connection: app=%s, entity=%s, auth_config=%s",
+                "Initiating Composio connection: app=%s, entity=%s, integration_id=%s",
                 app_name, entity_id, auth_config_id,
+            )
+            # auth_config_id is actually a Composio integration ID —
+            # fetch the IntegrationModel and pass it directly so the SDK
+            # reuses it instead of creating a new integration each time.
+            integration = await asyncio.to_thread(
+                self._toolset.client.integrations.get,
+                id=auth_config_id,
             )
             connection_request = await asyncio.to_thread(
                 entity.initiate_connection,
                 app_name=app_name,
-                auth_config_id=auth_config_id,
+                integration=integration,
                 redirect_url=redirect_url,
             )
             return {
