@@ -225,6 +225,7 @@ class WorkflowExecutor:
             "browser_action": self._execute_browser,
             "llm_summarize": self._execute_llm_summarize,
             "web_search": self._execute_web_search,
+            "ocr": self._execute_ocr,
         }
 
         handler = action_handlers.get(step.action)
@@ -459,6 +460,53 @@ class WorkflowExecutor:
                 "query": query,
                 "results": f"Web search failed for: {query}",
             }
+
+    async def _execute_ocr(self, step: WorkflowStep, context: dict) -> dict:
+        """OCR via Mistral's native OCR API (mistral-ocr-latest)."""
+        params = self._interpolate_params(step.params, context)
+
+        doc_url = str(params.get("url", params.get("document_url", "")))[:2048]
+        if not doc_url:
+            return {"status": "error", "error": "OCR requires a 'url' parameter"}
+
+        if not self._is_url_safe(doc_url):
+            return {"status": "error", "error": "URL not allowed for OCR"}
+
+        # Detect document type from URL
+        is_image = any(doc_url.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+        doc_type = "image_url" if is_image else "document_url"
+        doc_key = "image_url" if is_image else "document_url"
+
+        try:
+            ocr_response = await asyncio.to_thread(
+                self.mistral_client.ocr.process,
+                model="mistral-ocr-latest",
+                document={"type": doc_type, doc_key: doc_url},
+                include_image_base64=False,
+            )
+
+            # Extract markdown text from all pages
+            pages = []
+            if hasattr(ocr_response, "pages"):
+                for page in ocr_response.pages:
+                    md = getattr(page, "markdown", "")
+                    if md:
+                        pages.append(md)
+            elif isinstance(ocr_response, dict):
+                for page in ocr_response.get("pages", []):
+                    md = page.get("markdown", "")
+                    if md:
+                        pages.append(md)
+
+            text = "\n\n---\n\n".join(pages) if pages else ""
+            return {
+                "status": "success",
+                "text": text,
+                "page_count": len(pages),
+            }
+        except Exception:
+            logger.error("Mistral OCR failed for URL: %s", doc_url, exc_info=True)
+            return {"status": "error", "error": "OCR processing failed"}
 
     def _is_url_safe(self, url: str) -> bool:
         parsed = urlparse(url)

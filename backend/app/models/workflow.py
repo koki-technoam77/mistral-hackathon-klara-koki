@@ -39,6 +39,7 @@ ALLOWED_ACTIONS = frozenset([
     "browser_action",
     "llm_summarize",
     "web_search",
+    "ocr",
     "send_email",
     "create_calendar_event",
     "list_emails",
