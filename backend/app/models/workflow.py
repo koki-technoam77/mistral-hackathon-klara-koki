@@ -61,6 +61,12 @@ ALLOWED_ACTIONS = frozenset([
     "deploy_service",
     "monitor_system",
     "configure_pipeline",
+    # Hacker News (Composio, no auth)
+    "hackernews_frontpage",
+    "hackernews_get_item",
+    "hackernews_latest",
+    "hackernews_today",
+    "hackernews_get_user",
 ])
 
 

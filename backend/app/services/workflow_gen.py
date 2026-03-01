@@ -188,7 +188,7 @@ Rules:
 - Each step must have a unique id
 - Steps can depend on previous steps via depends_on
 - Use template syntax {{{{step_id.output}}}} to reference previous outputs
-- Actions: web_search, llm_summarize, api_call, browser_action, send_email, send_slack_message, create_calendar_event
+- Actions: web_search, llm_summarize, api_call, browser_action, send_email, send_slack_message, create_calendar_event, hackernews_frontpage, hackernews_latest, hackernews_today, hackernews_get_item, hackernews_get_user
 - Trigger types: schedule (needs cron), webhook (needs webhook_url), manual
 - Do not include any text outside JSON
 - Step count must not exceed 10

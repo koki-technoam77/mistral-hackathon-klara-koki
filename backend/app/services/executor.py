@@ -25,6 +25,12 @@ COMPOSIO_ACTIONS = frozenset([
     "list_emails",
     "create_task",
     "send_slack_message",
+    # Hacker News — no auth required
+    "hackernews_frontpage",
+    "hackernews_get_item",
+    "hackernews_latest",
+    "hackernews_today",
+    "hackernews_get_user",
 ])
 
 COMPOSIO_ACTION_MAP = {
@@ -33,6 +39,12 @@ COMPOSIO_ACTION_MAP = {
     "list_emails": "GMAIL_LIST_EMAILS",
     "create_task": "TODOIST_CREATE_TASK",
     "send_slack_message": "SLACK_SEND_MESSAGE",
+    # Hacker News (no auth, direct execution)
+    "hackernews_frontpage": "HACKERNEWS_GET_FRONTPAGE",
+    "hackernews_get_item": "HACKERNEWS_GET_ITEM_WITH_ID",
+    "hackernews_latest": "HACKERNEWS_GET_LATEST_POSTS",
+    "hackernews_today": "HACKERNEWS_GET_TODAYS_POSTS",
+    "hackernews_get_user": "HACKERNEWS_GET_USER",
 }
 
 # Composio param key normalization per action
@@ -363,19 +375,28 @@ class WorkflowExecutor:
                 tool_choice="auto",
                 max_tokens=1024,
             )
-            content = response.choices[0].message.content if response.choices else ""
+            # Mistral web_search may return content as string or list of text/reference blocks
+            raw_content = response.choices[0].message.content if response.choices else ""
+            if isinstance(raw_content, list):
+                # Extract text blocks, skip tool_reference blocks
+                text_parts = []
+                for chunk in raw_content:
+                    if isinstance(chunk, dict) and chunk.get("type") == "text":
+                        text_parts.append(chunk.get("text", ""))
+                    elif isinstance(chunk, str):
+                        text_parts.append(chunk)
+                    elif hasattr(chunk, "text"):
+                        text_parts.append(str(chunk.text))
+                content = "\n".join(text_parts)
+            else:
+                content = str(raw_content) if raw_content else ""
             return {"status": "success", "query": query, "results": content}
         except Exception:
+            logger.error("Web search failed for query: %s", query, exc_info=True)
             return {
-                "status": "success",
+                "status": "error",
                 "query": query,
-                "results": [
-                    {
-                        "title": f"Result for '{query}'",
-                        "url": "https://example.com",
-                        "snippet": "Search unavailable — mock result",
-                    }
-                ],
+                "results": f"Web search failed for: {query}",
             }
 
     def _is_url_safe(self, url: str) -> bool:

@@ -11,7 +11,18 @@ ACTION_TO_APP = {
     "create_calendar_event": "googlecalendar",
     "create_task": "todoist",
     "send_slack_message": "slack",
+    "hackernews_frontpage": "hackernews",
+    "hackernews_get_item": "hackernews",
+    "hackernews_latest": "hackernews",
+    "hackernews_today": "hackernews",
+    "hackernews_get_user": "hackernews",
 }
+
+# Apps that require OAuth (need auth_config_id)
+OAUTH_APPS = frozenset(["gmail", "googlecalendar", "slack", "todoist"])
+
+# Apps that work without auth (no-auth toolkits)
+NO_AUTH_APPS = frozenset(["hackernews"])
 
 # Deduplicated list of supported apps for UI
 SUPPORTED_APPS = sorted(set(ACTION_TO_APP.values()))
@@ -60,6 +71,16 @@ class ComposioAuthService:
 
         results = []
         for app_name in SUPPORTED_APPS:
+            # No-auth apps are always available
+            if app_name in NO_AUTH_APPS:
+                results.append({
+                    "app": app_name,
+                    "status": "active",
+                    "auth_type": "none",
+                    "connected_account_id": None,
+                })
+                continue
+
             try:
                 entity = self._toolset.get_entity(id=entity_id)
                 conn = await asyncio.to_thread(entity.get_connection, app=app_name)
