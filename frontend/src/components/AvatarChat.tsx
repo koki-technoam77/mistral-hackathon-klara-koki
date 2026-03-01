@@ -62,7 +62,7 @@ export default function AvatarChat({
 }: Props) {
   const [status, setStatus] = useState<ConversationStatus>("initializing");
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [showTranscript, setShowTranscript] = useState(true);
+  const [showTranscript, setShowTranscript] = useState(false);
   const [levelUpFlash, setLevelUpFlash] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -761,17 +761,6 @@ export default function AvatarChat({
           )}
         </AnimatePresence>
 
-        {/* Transcript toggle */}
-        <button
-          onClick={() => setShowTranscript((v) => !v)}
-          className="absolute top-3 right-3 bg-gray-900/80 backdrop-blur rounded-full p-2 text-gray-400 hover:text-white transition-colors z-30"
-          title={showTranscript ? "Hide transcript" : "Show transcript"}
-        >
-          <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
-            <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v6a2 2 0 01-2 2H6l-4 4V5z" />
-          </svg>
-        </button>
-
         {/* End conversation button */}
         {status === "active" && (
           <button
@@ -781,45 +770,58 @@ export default function AvatarChat({
               avatarRef.current = null;
               setStatus("disconnected");
             }}
-            className="absolute top-3 right-14 bg-red-600/80 hover:bg-red-500 backdrop-blur rounded-full px-3 py-1.5 text-white text-xs font-semibold transition-colors z-30"
+            className="absolute top-3 right-3 bg-red-600/80 hover:bg-red-500 backdrop-blur rounded-full px-3 py-1.5 text-white text-xs font-semibold transition-colors z-30"
           >
             End Call
           </button>
         )}
 
-        {/* Transcript overlay */}
-        <AnimatePresence>
-          {showTranscript && messages.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="absolute top-12 right-3 bottom-14 w-72 bg-gray-950/85 backdrop-blur-md rounded-xl border border-gray-800 overflow-hidden flex flex-col z-20"
-            >
-              <div className="px-3 py-2 border-b border-gray-800 flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                <span className="text-xs font-medium text-gray-300">Transcript</span>
-              </div>
-              <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 scrollbar-thin">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`text-xs leading-relaxed ${
-                      msg.role === "user" ? "text-indigo-300" : "text-gray-400"
-                    }`}
-                  >
-                    <span className="font-medium text-gray-500">
-                      {msg.role === "user" ? "You" : "Flow"}:{" "}
-                    </span>
-                    {msg.content}
-                  </div>
-                ))}
-                <div ref={bottomRef} />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Transcript toggle — bottom-right corner */}
+        <button
+          onClick={() => setShowTranscript((v) => !v)}
+          className={`absolute bottom-3 right-3 backdrop-blur rounded-full p-2 transition-colors z-30 ${
+            showTranscript
+              ? "bg-indigo-600/80 text-white"
+              : "bg-gray-900/80 text-gray-400 hover:text-white"
+          }`}
+          title={showTranscript ? "Hide transcript" : "Show transcript"}
+        >
+          <svg viewBox="0 0 20 20" className="w-4 h-4" fill="currentColor">
+            <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v6a2 2 0 01-2 2H6l-4 4V5z" />
+          </svg>
+        </button>
+
       </div>
+
+      {/* Transcript panel — collapsible below avatar */}
+      <AnimatePresence>
+        {showTranscript && messages.length > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-gray-800 bg-gray-950 overflow-hidden shrink-0"
+          >
+            <div className="max-h-40 overflow-y-auto px-3 py-2 space-y-1.5 scrollbar-thin">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`text-xs leading-relaxed ${
+                    msg.role === "user" ? "text-indigo-300" : "text-gray-400"
+                  }`}
+                >
+                  <span className="font-medium text-gray-500">
+                    {msg.role === "user" ? "You" : "Flow"}:{" "}
+                  </span>
+                  {msg.content}
+                </div>
+              ))}
+              <div ref={bottomRef} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Error display */}
       <AnimatePresence>
