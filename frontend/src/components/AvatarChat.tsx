@@ -68,6 +68,7 @@ export default function AvatarChat({
   const [error, setError] = useState<string | null>(null);
 
   const [workflowReady, setWorkflowReady] = useState(false);
+  const [needsConnectionApp, setNeedsConnectionApp] = useState<string | null>(null);
 
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -259,24 +260,41 @@ export default function AvatarChat({
           }
         },
         (result) => {
-          // Done
-          onExecutionComplete(result);
-          onCharacterUpdate(result.character_state);
+          // Done — check for needs_connection in step results
+          const stepResults = result.execution?.step_results ?? {};
+          const needsConnect = Object.values(stepResults).find(
+            (r: unknown) => r && typeof r === "object" && (r as Record<string, unknown>).needs_connection
+          ) as Record<string, unknown> | undefined;
 
-          const didLevelUp = result.xp_result.level_up;
+          if (needsConnect) {
+            const appName = String(needsConnect.app ?? "service").split("_")[0];
+            setNeedsConnectionApp(appName);
+            onNewMessage({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: `To run this workflow, you need to connect ${appName}. Tap the "Connect ${appName}" button below.`,
+              timestamp: new Date(),
+            });
+          }
+
+          onExecutionComplete(result);
+          if (result.character_state) onCharacterUpdate(result.character_state);
+
+          const didLevelUp = result.xp_result?.level_up;
           const xpContent = didLevelUp
             ? `LEVEL UP! Your companion evolved to level ${result.xp_result.new_level}! +${result.xp_result.xp_earned ?? 0} XP`
             : `Workflow executed! +${result.xp_result.xp_earned ?? 0} XP earned`;
 
-          onNewMessage({
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: xpContent,
-            timestamp: new Date(),
-          });
-
-          if (didLevelUp) setLevelUpFlash(true);
-          playNotificationSound();
+          if (!needsConnect) {
+            onNewMessage({
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: xpContent,
+              timestamp: new Date(),
+            });
+            if (didLevelUp) setLevelUpFlash(true);
+            playNotificationSound();
+          }
         },
         (err) => {
           // Error
@@ -334,6 +352,72 @@ export default function AvatarChat({
         content: `Scheduling failed: ${msg}`,
         timestamp: new Date(),
       });
+    }
+  };
+
+  // ─── Inline Composio connection prompt ──────────────────────────────────
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnectService = async (appName: string) => {
+    setIsConnecting(true);
+    try {
+      const redirectUrl = window.location.href;
+      const result = await api.initiateComposioConnection(
+        appName,
+        redirectUrl,
+        sessionIdRef.current ?? "default"
+      );
+      if (result.status === "error") {
+        onNewMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `Connection failed: unable to start OAuth for ${appName}.`,
+          timestamp: new Date(),
+        });
+        setIsConnecting(false);
+        return;
+      }
+      // Open OAuth popup
+      if (result.redirect_url) {
+        const oauthWindow = window.open(result.redirect_url, "_blank", "width=600,height=700");
+        // Poll for connection completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const status = await api.getComposioConnectionStatus(
+              appName,
+              sessionIdRef.current ?? "default"
+            );
+            if (status.status === "active") {
+              clearInterval(pollInterval);
+              if (oauthWindow && !oauthWindow.closed) oauthWindow.close();
+              setNeedsConnectionApp(null);
+              setIsConnecting(false);
+              onNewMessage({
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: `${appName} connected successfully! You can now run the workflow.`,
+                timestamp: new Date(),
+              });
+              playNotificationSound();
+            }
+          } catch {
+            // keep polling
+          }
+        }, 2000);
+        // Stop polling after 5 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setIsConnecting(false);
+        }, 300_000);
+      }
+    } catch {
+      onNewMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `Failed to start ${appName} connection. Please try again.`,
+        timestamp: new Date(),
+      });
+      setIsConnecting(false);
     }
   };
 
@@ -620,6 +704,53 @@ export default function AvatarChat({
                 )}
               </AnimatePresence>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Inline connection prompt — shown only when workflow needs OAuth */}
+      <AnimatePresence>
+        {needsConnectionApp && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 py-2.5 border-t border-amber-700 bg-amber-950/30 flex items-center gap-3 shrink-0"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-amber-300 font-medium">
+                Connect {needsConnectionApp} to run this workflow
+              </p>
+              <p className="text-xs text-gray-500">
+                OAuth login will open in a new window
+              </p>
+            </div>
+            <button
+              onClick={() => handleConnectService(needsConnectionApp)}
+              disabled={isConnecting}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+            >
+              {isConnecting ? (
+                <>
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="inline-block"
+                  >
+                    ⟳
+                  </motion.span>
+                  Connecting...
+                </>
+              ) : (
+                <>🔗 Connect {needsConnectionApp}</>
+              )}
+            </button>
+            <button
+              onClick={() => setNeedsConnectionApp(null)}
+              className="text-gray-500 hover:text-gray-300 text-xs"
+            >
+              ✕
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
