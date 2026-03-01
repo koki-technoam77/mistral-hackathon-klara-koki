@@ -421,6 +421,124 @@ export default function AvatarChat({
     }
   };
 
+  // ─── Text chat input (alternative to voice) ───────────────────────────────
+  const [chatInput, setChatInput] = useState("");
+  const [isSendingText, setIsSendingText] = useState(false);
+
+  const handleSendText = async () => {
+    const text = chatInput.trim();
+    if (!text || isSendingText) return;
+
+    setChatInput("");
+    setIsSendingText(true);
+
+    onNewMessage({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      timestamp: new Date(),
+    });
+
+    try {
+      const res = await api.chat(text, sessionIdRef.current ?? undefined);
+      if (!mountedRef.current) return;
+      if (res.session_id) sessionIdRef.current = res.session_id;
+      onCharacterUpdate(res.character_state);
+
+      if (res.message) {
+        onNewMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: res.message,
+          timestamp: new Date(),
+        });
+      }
+
+      if (res.ready && res.workflow) {
+        onWorkflowReady(res.workflow);
+        setWorkflowReady(true);
+        playNotificationSound();
+        onNewMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `Automation "${res.workflow.name}" is ready! Tap "Run" below.`,
+          timestamp: new Date(),
+        });
+        setTimeout(() => {
+          if (mountedRef.current) setWorkflowReady(false);
+        }, 5000);
+      }
+    } catch (err) {
+      console.warn("[Chat] Text send error:", err);
+    } finally {
+      setIsSendingText(false);
+    }
+  };
+
+  // ─── Resource picker (Google Sheets, GitHub repos, etc.) ──────────────────
+  const [showResourcePicker, setShowResourcePicker] = useState(false);
+  const [resourcePickerApp, setResourcePickerApp] = useState<string | null>(null);
+  const [resources, setResources] = useState<api.ResourceItem[]>([]);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
+
+  const openResourcePicker = async (appName: string) => {
+    setResourcePickerApp(appName);
+    setShowResourcePicker(true);
+    setIsLoadingResources(true);
+    setResources([]);
+
+    try {
+      const result = await api.listComposioResources(
+        appName,
+        sessionIdRef.current ?? "default"
+      );
+      if (mountedRef.current) {
+        setResources(result.resources);
+      }
+    } catch {
+      // silently fail — picker just shows empty
+    } finally {
+      if (mountedRef.current) setIsLoadingResources(false);
+    }
+  };
+
+  const handleSelectResource = (resource: api.ResourceItem) => {
+    setShowResourcePicker(false);
+    const text = resource.url || resource.name;
+    setChatInput(text);
+    // Auto-send as chat message
+    onNewMessage({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: resource.name,
+      timestamp: new Date(),
+    });
+    api
+      .chat(
+        `I want to use: ${resource.name} (${resource.url || resource.id})`,
+        sessionIdRef.current ?? undefined
+      )
+      .then((res) => {
+        if (!mountedRef.current) return;
+        if (res.session_id) sessionIdRef.current = res.session_id;
+        onCharacterUpdate(res.character_state);
+        if (res.message) {
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: res.message,
+            timestamp: new Date(),
+          });
+        }
+        if (res.ready && res.workflow) {
+          onWorkflowReady(res.workflow);
+          setWorkflowReady(true);
+          playNotificationSound();
+        }
+      })
+      .catch(() => {});
+  };
+
   // ─── Status config ────────────────────────────────────────────────────────
 
   const statusConfig = {
@@ -755,21 +873,99 @@ export default function AvatarChat({
         )}
       </AnimatePresence>
 
-      {/* Bottom info bar */}
-      <div className="px-4 py-3 border-t border-gray-800 shrink-0 flex items-center justify-center gap-3">
-        {status === "active" ? (
-          <p className="text-gray-400 text-xs text-center">
-            Voice conversation active — speak naturally. The avatar will respond in real-time.
-          </p>
-        ) : (
-          <p className="text-gray-500 text-xs text-center">
-            {status === "connecting"
-              ? "Setting up voice conversation..."
-              : status === "error"
-              ? "Connection failed. Click Retry to try again."
-              : "Waiting for connection..."}
-          </p>
+      {/* Resource picker overlay */}
+      <AnimatePresence>
+        {showResourcePicker && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="border-t border-gray-700 bg-gray-900/95 backdrop-blur shrink-0 max-h-48 overflow-hidden flex flex-col"
+          >
+            <div className="px-4 py-2 border-b border-gray-800 flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-300">
+                Select from your {
+                  resourcePickerApp === "googlesheets" ? "Google Sheets"
+                  : resourcePickerApp === "slack" ? "Slack channels"
+                  : resourcePickerApp === "github" ? "GitHub repos"
+                  : resourcePickerApp === "googlecalendar" ? "Google Calendars"
+                  : resourcePickerApp === "gmail" ? "Gmail"
+                  : resourcePickerApp ?? "resources"
+                }
+              </span>
+              <button
+                onClick={() => setShowResourcePicker(false)}
+                className="text-gray-500 hover:text-gray-300 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {isLoadingResources ? (
+                <div className="px-4 py-3 text-xs text-gray-500 text-center">Loading...</div>
+              ) : resources.length === 0 ? (
+                <div className="px-4 py-3 text-xs text-gray-500 text-center">No resources found. Type the name manually below.</div>
+              ) : (
+                resources.map((r) => (
+                  <button
+                    key={r.id || r.name}
+                    onClick={() => handleSelectResource(r)}
+                    className="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-gray-800 hover:text-white transition-colors border-b border-gray-800/50 truncate"
+                  >
+                    <span className="font-medium">{r.name}</span>
+                    {r.url && <span className="text-gray-600 ml-2 text-[10px]">{r.url}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Text chat input + service picker buttons */}
+      <div className="px-3 py-2 border-t border-gray-800 shrink-0 flex items-center gap-2">
+        {/* Service resource picker buttons */}
+        <div className="flex gap-1 shrink-0">
+          {[
+            { app: "googlesheets", icon: "📊", label: "Sheets" },
+            { app: "slack", icon: "💬", label: "Channels" },
+            { app: "github", icon: "🐙", label: "Repos" },
+            { app: "googlecalendar", icon: "📅", label: "Calendars" },
+          ].map((svc) => (
+            <button
+              key={svc.app}
+              onClick={() => openResourcePicker(svc.app)}
+              className="px-2 py-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-[10px] transition-colors"
+              title={`Browse ${svc.label}`}
+            >
+              {svc.icon}
+            </button>
+          ))}
+        </div>
+
+        {/* Text input */}
+        <input
+          type="text"
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSendText();
+            }
+          }}
+          placeholder={status === "active" ? "Type or speak..." : "Type a message..."}
+          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+        />
+
+        {/* Send button */}
+        <button
+          onClick={handleSendText}
+          disabled={!chatInput.trim() || isSendingText}
+          className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors"
+        >
+          {isSendingText ? "..." : "Send"}
+        </button>
       </div>
     </div>
   );

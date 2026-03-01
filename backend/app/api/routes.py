@@ -627,6 +627,91 @@ async def composio_connection_status(app_name: str, session_id: str = "default")
     return ComposioConnectionStatus(**result)
 
 
+# Resource listing actions per app (for picker UI)
+_RESOURCE_LIST_ACTIONS: dict[str, str] = {
+    "googlesheets": "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+    "slack": "SLACK_LIST_ALL_CHANNELS",
+    "gmail": "GMAIL_LIST_EMAILS",
+    "github": "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
+    "googlecalendar": "GOOGLECALENDAR_LIST_CALENDARS",
+}
+
+
+@router.get("/composio/resources/{app_name}", dependencies=[Depends(_verify_api_key)])
+async def composio_list_resources(app_name: str, session_id: str = "default"):
+    """List user resources for a service (e.g. Google Sheets, GitHub repos)."""
+    services = _get_services()
+    executor: WorkflowExecutor = services["executor"]
+
+    composio_action = _RESOURCE_LIST_ACTIONS.get(app_name)
+    if not composio_action:
+        return {"app": app_name, "resources": [], "error": "No resource listing for this app"}
+
+    if not executor._composio_toolset:
+        executor._init_composio()
+    if not executor._composio_toolset:
+        return {"app": app_name, "resources": [], "error": "Composio not configured"}
+
+    try:
+        result = await asyncio.to_thread(
+            executor._composio_toolset.execute_action,
+            action=composio_action,
+            params={},
+            entity_id=session_id,
+        )
+        data = result.get("data") if isinstance(result, dict) else result
+        items = _normalize_resources(data, app_name)
+        return {"app": app_name, "resources": items}
+    except Exception:
+        logger.error("Failed to list resources for %s", app_name, exc_info=True)
+        return {"app": app_name, "resources": [], "error": "Failed to fetch resources"}
+
+
+def _normalize_resources(data: object, app_name: str) -> list[dict]:
+    """Normalize Composio response into [{id, name, url}] for any service."""
+
+    def _extract_item(item: dict) -> dict:
+        """Extract id/name/url from a single resource dict."""
+        item_id = (
+            item.get("id") or item.get("spreadsheetId") or item.get("full_name")
+            or item.get("channel_id") or ""
+        )
+        name = (
+            item.get("name") or item.get("title") or item.get("full_name")
+            or item.get("subject") or item.get("summary") or str(item_id)
+        )
+        url = (
+            item.get("url") or item.get("spreadsheetUrl") or item.get("html_url")
+            or item.get("permalink") or ""
+        )
+        return {"id": str(item_id), "name": str(name), "url": str(url)}
+
+    items: list[dict] = []
+    # Unwrap: data may be a list, or a dict with a nested list
+    if isinstance(data, list):
+        raw_list = data
+    elif isinstance(data, dict):
+        # Try common wrapper keys
+        raw_list = None
+        for key in ("channels", "files", "spreadsheets", "repositories",
+                     "messages", "results", "items", "calendars", "values"):
+            if key in data and isinstance(data[key], list):
+                raw_list = data[key]
+                break
+        if raw_list is None:
+            # Maybe the dict itself is a single resource
+            if "id" in data or "name" in data or "title" in data:
+                return [_extract_item(data)]
+            return []
+    else:
+        return []
+
+    for item in raw_list[:50]:
+        if isinstance(item, dict):
+            items.append(_extract_item(item))
+    return items
+
+
 # ──────────────────────────────────────────────────────────────────
 # Workflow Scheduler Endpoints
 # ──────────────────────────────────────────────────────────────────

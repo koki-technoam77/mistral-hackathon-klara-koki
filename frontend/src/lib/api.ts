@@ -299,6 +299,21 @@ export async function getComposioApps(): Promise<{ apps: string[] }> {
   return apiFetch<{ apps: string[] }>("/composio/apps");
 }
 
+export interface ResourceItem {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export async function listComposioResources(
+  appName: string,
+  sessionId: string = "default"
+): Promise<{ app: string; resources: ResourceItem[]; error?: string }> {
+  return apiFetch<{ app: string; resources: ResourceItem[]; error?: string }>(
+    `/composio/resources/${encodeURIComponent(appName)}?session_id=${encodeURIComponent(sessionId)}`
+  );
+}
+
 // ─── Workflow Scheduler ──────────────────────────────────────────────────────
 
 export interface ScheduledJob {
