@@ -192,6 +192,12 @@ export default function AvatarChat({
             content: text,
             timestamp: new Date(),
           });
+          // Sync agent response to backend orchestrator so it has full context
+          api.syncChatMessage(
+            sessionIdRef.current ?? "default",
+            "assistant",
+            text,
+          ).catch(() => {});
         },
         onInterrupt: () => {
           avatarRef.current?.interruptPersona();
@@ -491,6 +497,15 @@ export default function AvatarChat({
           content: res.message,
           timestamp: new Date(),
         });
+        // Speak the response through the avatar (non-blocking)
+        api.synthesizePcmAudio(res.message).then((pcmBuf) => {
+          if (!mountedRef.current) return;
+          const base64 = btoa(
+            String.fromCharCode(...new Uint8Array(pcmBuf))
+          );
+          avatarRef.current?.sendAudioChunk(base64);
+          avatarRef.current?.endSequence();
+        }).catch(() => {});
       }
 
       if (res.ready && res.workflow) {

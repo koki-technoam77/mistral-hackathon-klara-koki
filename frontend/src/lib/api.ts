@@ -67,6 +67,18 @@ export async function resetChat(sessionId?: string): Promise<{ status: string }>
   });
 }
 
+/** Sync an external message into the orchestrator's conversation history (no AI response). */
+export async function syncChatMessage(
+  sessionId: string,
+  role: "user" | "assistant",
+  content: string
+): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>("/chat/sync", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, role, content }),
+  });
+}
+
 // ─── Workflow ─────────────────────────────────────────────────────────────────
 
 export async function executeWorkflow(

@@ -256,6 +256,29 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+class ChatSyncRequest(BaseModel):
+    """Inject a message into the orchestrator's conversation history without triggering a response."""
+    session_id: str = "default"
+    role: str = "assistant"  # "user" or "assistant"
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+@router.post("/chat/sync", dependencies=[Depends(_verify_api_key)])
+async def chat_sync(request: ChatSyncRequest):
+    """Sync an external message (e.g. from ElevenLabs agent) into the orchestrator session."""
+    if request.role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'assistant'")
+    orchestrator = _get_orchestrator(request.session_id)
+    orchestrator.conversation_history.append({
+        "role": request.role,
+        "content": request.content[:4000],
+    })
+    # Cap history
+    if len(orchestrator.conversation_history) > MAX_HISTORY_PER_SESSION:
+        orchestrator.conversation_history = orchestrator.conversation_history[-MAX_HISTORY_PER_SESSION:]
+    return {"status": "synced"}
+
+
 class ChatResetRequest(BaseModel):
     session_id: str = ""
 
