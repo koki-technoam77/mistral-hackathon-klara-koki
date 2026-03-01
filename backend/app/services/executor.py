@@ -60,7 +60,7 @@ COMPOSIO_ACTION_MAP = {
     "create_calendar_event": "GOOGLECALENDAR_CREATE_EVENT",
     "list_emails": "GMAIL_LIST_EMAILS",
     "create_task": "TODOIST_CREATE_TASK",
-    "send_slack_message": "SLACK_SEND_MESSAGE",
+    "send_slack_message": "SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL",
     # Google Sheets
     "sheets_create_row": "GOOGLESHEETS_CREATE_SPREADSHEET_ROW",
     "sheets_query": "GOOGLESHEETS_QUERY_TABLE",
@@ -105,7 +105,7 @@ _COMPOSIO_PARAM_MAP: dict[str, dict[str, str]] = {
         "start": "start_datetime",
         "end": "end_datetime",
     },
-    "SLACK_SEND_MESSAGE": {
+    "SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL": {
         "message": "text",
         "body": "text",
         "channel": "channel",
@@ -262,6 +262,14 @@ class WorkflowExecutor:
         # Normalize param keys for Composio's expected format
         normalized = self._normalize_composio_params(composio_action, params)
 
+        # Normalize Slack channel name: strip leading '#', lowercase
+        if composio_action == "SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL" and "channel" in normalized:
+            ch = str(normalized["channel"]).strip().lstrip("#").lower()
+            if not ch:
+                return {"status": "error", "error": "Slack channel name is empty"}
+            normalized["channel"] = ch
+            logger.info("Normalized Slack channel to: %s", ch)
+
         # Handle "me" as recipient: resolve to authenticated user's Gmail address
         if composio_action == "GMAIL_SEND_EMAIL" and normalized.get("recipient_email", "").strip().lower() == "me":
             try:
@@ -280,9 +288,11 @@ class WorkflowExecutor:
                 logger.warning("Could not resolve 'me' to email address", exc_info=True)
 
         try:
+            # Log full params for debugging (truncate long values)
+            debug_params = {k: (str(v)[:100] if isinstance(v, str) and len(str(v)) > 100 else v) for k, v in normalized.items()}
             logger.info(
                 "Executing Composio action: %s (entity=%s, params=%s)",
-                composio_action, entity_id, list(normalized.keys()),
+                composio_action, entity_id, debug_params,
             )
             result = await asyncio.to_thread(
                 self._composio_toolset.execute_action,
@@ -308,9 +318,12 @@ class WorkflowExecutor:
                 "composio_action": composio_action,
                 "result": result.get("data") if isinstance(result, dict) else result,
             }
-        except Exception:
-            logger.error("Composio action '%s' failed for entity '%s'", step.action, entity_id, exc_info=True)
-            return {"status": "error", "error": f"Composio action '{step.action}' failed"}
+        except Exception as exc:
+            logger.error(
+                "Composio action '%s' (mapped=%s) failed for entity '%s': %s",
+                step.action, composio_action, entity_id, repr(exc), exc_info=True,
+            )
+            return {"status": "error", "error": f"Composio action '{step.action}' failed: {str(exc)[:200]}"}
 
     async def _execute_api_call(self, step: WorkflowStep, context: dict) -> dict:
         params = self._interpolate_params(step.params, context)

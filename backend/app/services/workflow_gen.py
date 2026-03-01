@@ -206,7 +206,7 @@ Rules:
   - hackernews_frontpage, hackernews_latest, hackernews_today, hackernews_get_item → output key: result
   - gemini_generate, gemini_generate_image → output key: result
   - send_email (params: to, subject, body) — terminal step
-  - send_slack_message (params: channel, message) — terminal step
+  - send_slack_message (params: channel, message) — terminal step. Channel must be lowercase without '#' prefix (e.g. "general", not "#General")
   - create_calendar_event (params: title, start, end) — terminal step
   - sheets_create_row, sheets_query, sheets_lookup_row → output key: result
   - linkedin_create_post, linkedin_share_url → output key: result

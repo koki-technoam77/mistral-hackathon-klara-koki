@@ -4,6 +4,7 @@ import type {
   WorkflowDefinition,
   WorkflowExecuteResponse,
   AnamSessionResponse,
+  SavedWorkflow,
 } from "@/types";
 
 const BASE_URL =
@@ -324,6 +325,45 @@ export async function listComposioResources(
 ): Promise<{ app: string; resources: ResourceItem[]; error?: string }> {
   return apiFetch<{ app: string; resources: ResourceItem[]; error?: string }>(
     `/composio/resources/${encodeURIComponent(appName)}?session_id=${encodeURIComponent(sessionId)}`
+  );
+}
+
+// ─── Saved Workflows ─────────────────────────────────────────────────────────
+
+export async function saveWorkflow(
+  workflow: WorkflowDefinition,
+  sessionId: string = "default"
+): Promise<SavedWorkflow> {
+  return apiFetch<SavedWorkflow>("/workflows/save", {
+    method: "POST",
+    body: JSON.stringify({ workflow, session_id: sessionId }),
+  });
+}
+
+export async function getSavedWorkflows(
+  sessionId: string = "default"
+): Promise<{ workflows: SavedWorkflow[] }> {
+  return apiFetch<{ workflows: SavedWorkflow[] }>(
+    `/workflows?session_id=${encodeURIComponent(sessionId)}`
+  );
+}
+
+export async function getSavedWorkflow(
+  workflowId: string,
+  sessionId: string = "default"
+): Promise<SavedWorkflow> {
+  return apiFetch<SavedWorkflow>(
+    `/workflows/${encodeURIComponent(workflowId)}?session_id=${encodeURIComponent(sessionId)}`
+  );
+}
+
+export async function deleteSavedWorkflow(
+  workflowId: string,
+  sessionId: string = "default"
+): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(
+    `/workflows/${encodeURIComponent(workflowId)}?session_id=${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" }
   );
 }
 

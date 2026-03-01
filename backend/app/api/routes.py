@@ -31,6 +31,7 @@ from app.services.composio_auth import ComposioAuthService
 from app.services.scheduler import WorkflowScheduler
 from app.services.voice import VoiceService
 from app.services.workflow_gen import WorkflowGenerator
+from app.services.workflow_storage import WorkflowStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ _ai_team: Optional[AITeamOrchestrator] = None
 _anam_service: Optional[AnamService] = None
 _composio_auth: Optional[ComposioAuthService] = None
 _scheduler: Optional[WorkflowScheduler] = None
+_workflow_storage: Optional[WorkflowStorageService] = None
 _sessions: dict[str, tuple[OrchestratorAgent, float]] = {}
 _SESSION_TTL = 3600  # 1 hour
 _MAX_SESSIONS = 1000
@@ -93,7 +95,7 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
 
 
 def _get_services():
-    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service, _composio_auth, _scheduler
+    global _workflow_generator, _workflow_executor, _voice_service, _character_service, _ai_team, _anam_service, _composio_auth, _scheduler, _workflow_storage
 
     settings = _get_settings()
 
@@ -111,6 +113,8 @@ def _get_services():
         _anam_service = AnamService(settings)
     if _composio_auth is None:
         _composio_auth = ComposioAuthService(settings)
+    if _workflow_storage is None:
+        _workflow_storage = WorkflowStorageService(storage_dir=settings.workflow_storage_dir)
     if _scheduler is None:
         _scheduler = WorkflowScheduler(executor=_workflow_executor)
         _scheduler.start()
@@ -124,6 +128,7 @@ def _get_services():
         "anam_service": _anam_service,
         "composio_auth": _composio_auth,
         "scheduler": _scheduler,
+        "workflow_storage": _workflow_storage,
     }
 
 
@@ -523,6 +528,14 @@ async def workflow_execute_stream(request: WorkflowExecuteRequest):
         else:
             xp_result = {"xp_earned": 0, "level_up": False}
 
+        # Auto-save workflow and record run
+        try:
+            storage: WorkflowStorageService = services["workflow_storage"]
+            saved = storage.save(request.workflow, session_id=request.session_id)
+            storage.record_run(saved.id, session_id=request.session_id)
+        except Exception:
+            logger.debug("Auto-save workflow skipped", exc_info=True)
+
         character_state = services["character_service"].get_state(request.session_id)
 
         done_payload = {
@@ -830,6 +843,58 @@ async def workflow_schedule_cancel(job_id: str):
     if not scheduler.cancel(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "cancelled", "job_id": job_id}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Saved Workflows (Persistence)
+# ──────────────────────────────────────────────────────────────────
+
+
+class SaveWorkflowRequest(BaseModel):
+    workflow: WorkflowDefinition
+    session_id: str = "default"
+
+
+@router.post("/workflows/save", dependencies=[Depends(_verify_api_key)])
+async def save_workflow(request: SaveWorkflowRequest):
+    """Save a workflow for later re-use."""
+    services = _get_services()
+    storage: WorkflowStorageService = services["workflow_storage"]
+    try:
+        saved = storage.save(request.workflow, session_id=request.session_id)
+        return saved.to_dict()
+    except Exception:
+        logger.error("Workflow save failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save workflow")
+
+
+@router.get("/workflows", dependencies=[Depends(_verify_api_key)])
+async def list_workflows(session_id: str = "default"):
+    """List saved workflows for a session."""
+    services = _get_services()
+    storage: WorkflowStorageService = services["workflow_storage"]
+    return {"workflows": storage.list(session_id=session_id)}
+
+
+@router.get("/workflows/{workflow_id}", dependencies=[Depends(_verify_api_key)])
+async def get_workflow(workflow_id: str, session_id: str = "default"):
+    """Get a saved workflow by ID."""
+    services = _get_services()
+    storage: WorkflowStorageService = services["workflow_storage"]
+    saved = storage.get(workflow_id, session_id=session_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return saved.to_dict()
+
+
+@router.delete("/workflows/{workflow_id}", dependencies=[Depends(_verify_api_key)])
+async def delete_workflow(workflow_id: str, session_id: str = "default"):
+    """Delete a saved workflow."""
+    services = _get_services()
+    storage: WorkflowStorageService = services["workflow_storage"]
+    if not storage.delete(workflow_id, session_id=session_id):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"status": "deleted", "workflow_id": workflow_id}
 
 
 # ──────────────────────────────────────────────────────────────────

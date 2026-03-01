@@ -110,6 +110,17 @@ export interface AnamSessionResponse {
   elevenlabs_agent_id: string;
 }
 
+// ─── Saved Workflow types ────────────────────────────────────────────────────
+
+export interface SavedWorkflow {
+  id: string;
+  workflow: WorkflowDefinition;
+  session_id: string;
+  created_at: string;
+  last_run_at: string | null;
+  run_count: number;
+}
+
 // ─── Composio Connection types ──────────────────────────────────────────────
 
 export interface ComposioConnection {

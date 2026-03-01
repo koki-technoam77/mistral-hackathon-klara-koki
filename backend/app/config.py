@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Character persistence
     character_storage_dir: str = "/tmp/kotoflow_characters"
 
+    # Workflow persistence
+    workflow_storage_dir: str = "/tmp/kotoflow_workflows"
+
     # Composio Auth Config IDs (from Composio dashboard per app)
     composio_auth_config_gmail: str = ""
     composio_auth_config_googlecalendar: str = ""

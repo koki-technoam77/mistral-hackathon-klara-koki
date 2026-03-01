@@ -15,6 +15,10 @@ const APP_DISPLAY: Record<string, { name: string; icon: string; color: string }>
   googlecalendar: { name: "Google Calendar", icon: "📅", color: "text-blue-400" },
   slack: { name: "Slack", icon: "💬", color: "text-purple-400" },
   todoist: { name: "Todoist", icon: "✅", color: "text-orange-400" },
+  googlesheets: { name: "Google Sheets", icon: "📊", color: "text-green-400" },
+  linkedin: { name: "LinkedIn", icon: "💼", color: "text-blue-500" },
+  twitter: { name: "Twitter / X", icon: "🐦", color: "text-sky-400" },
+  github: { name: "GitHub", icon: "🐙", color: "text-gray-300" },
 };
 
 interface Props {
@@ -40,6 +44,20 @@ export default function ConnectionsPanel({ sessionId }: Props) {
 
   useEffect(() => {
     loadConnections();
+
+    // Auto-refresh when user returns to tab (e.g. after completing OAuth in another tab)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadConnections();
+      }
+    };
+    const handleFocus = () => loadConnections();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [loadConnections]);
 
   const handleConnect = async (appName: string) => {
@@ -62,7 +80,7 @@ export default function ConnectionsPanel({ sessionId }: Props) {
 
   const pollConnectionStatus = (appName: string) => {
     let attempts = 0;
-    const maxAttempts = 30; // 30 * 2s = 60s timeout
+    const maxAttempts = 60; // 60 * 2s = 120s timeout
     const interval = setInterval(async () => {
       attempts++;
       try {
@@ -118,7 +136,7 @@ export default function ConnectionsPanel({ sessionId }: Props) {
       </AnimatePresence>
 
       <div className="grid grid-cols-2 gap-2">
-        {connections.map((conn) => {
+        {connections.filter((conn) => APP_DISPLAY[conn.app]).map((conn) => {
           const display = APP_DISPLAY[conn.app] || { name: conn.app, icon: "🔗", color: "text-gray-400" };
           const isConnecting = connecting === conn.app;
           const isConnected = conn.status === "active";
@@ -139,9 +157,11 @@ export default function ConnectionsPanel({ sessionId }: Props) {
               </div>
 
               {isConnected ? (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-emerald-400">Connected</span>
+                <div className="flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-800/50 rounded-lg px-2 py-0.5">
+                  <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 text-emerald-400" fill="none">
+                    <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-xs font-semibold text-emerald-400">Connected</span>
                 </div>
               ) : conn.status === "not_configured" ? (
                 <span className="text-xs text-gray-600">Not configured</span>
@@ -172,7 +192,7 @@ export default function ConnectionsPanel({ sessionId }: Props) {
         })}
       </div>
 
-      {connections.every(c => c.status === "not_configured") && (
+      {connections.filter(c => APP_DISPLAY[c.app]).every(c => c.status === "not_configured") && (
         <p className="text-xs text-gray-600 mt-3 text-center">
           Set COMPOSIO_API_KEY in backend to enable service connections.
         </p>

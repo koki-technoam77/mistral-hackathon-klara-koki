@@ -13,6 +13,7 @@ import type {
   WorkflowDefinition,
   CharacterState,
   WorkflowExecutionStatus,
+  SavedWorkflow,
 } from "@/types";
 
 // ─── Onboarding overlay ────────────────────────────────────────────────────────
@@ -115,13 +116,20 @@ function Header({
   avatarMode,
   onToggleMode,
   sessionId,
+  savedWorkflows,
+  onLoadWorkflow,
+  onDeleteWorkflow,
 }: {
   character: CharacterState | null;
   avatarMode: boolean;
   onToggleMode: () => void;
   sessionId: string;
+  savedWorkflows: SavedWorkflow[];
+  onLoadWorkflow: (wf: WorkflowDefinition) => void;
+  onDeleteWorkflow: (id: string) => void;
 }) {
   const [showConnections, setShowConnections] = useState(false);
+  const [showSavedWorkflows, setShowSavedWorkflows] = useState(false);
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur shrink-0 z-50 relative">
       <div className="flex items-center gap-3">
@@ -192,6 +200,81 @@ function Header({
           </AnimatePresence>
         </div>
 
+        {/* My Workflows dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowSavedWorkflows((v) => !v)}
+            className="flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-300 hover:text-white hover:border-indigo-500 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M5 5h6M5 8h4M5 11h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            Workflows
+            {savedWorkflows.length > 0 && (
+              <span className="bg-indigo-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                {savedWorkflows.length}
+              </span>
+            )}
+          </button>
+          <AnimatePresence>
+            {showSavedWorkflows && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 top-full mt-2 w-80 bg-gray-950 border border-gray-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+              >
+                <div className="p-3 border-b border-gray-800">
+                  <h3 className="text-sm font-semibold text-white">Saved Workflows</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Click to load a workflow</p>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {savedWorkflows.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500 text-xs">
+                      No saved workflows yet. Run a workflow and it will appear here.
+                    </div>
+                  ) : (
+                    savedWorkflows.map((sw) => (
+                      <div
+                        key={sw.id}
+                        className="flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 cursor-pointer group transition-colors"
+                      >
+                        <button
+                          onClick={() => {
+                            onLoadWorkflow(sw.workflow);
+                            setShowSavedWorkflows(false);
+                          }}
+                          className="flex-1 text-left min-w-0"
+                        >
+                          <p className="text-sm text-white truncate">{sw.workflow.name}</p>
+                          <p className="text-[10px] text-gray-500">
+                            {sw.run_count} run{sw.run_count !== 1 ? "s" : ""}
+                            {sw.last_run_at && ` \u00b7 last ${new Date(sw.last_run_at).toLocaleDateString()}`}
+                          </p>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteWorkflow(sw.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all p-1"
+                          title="Delete"
+                        >
+                          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none">
+                            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* Mini character badge */}
         {character && (
           <motion.div
@@ -230,6 +313,7 @@ export default function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [avatarMode, setAvatarMode] = useState(true);
   const [sessionId] = useState(() => typeof crypto !== "undefined" ? crypto.randomUUID() : "default");
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
   const xpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Initial load ──────────────────────────────────────────────────────────
@@ -259,6 +343,17 @@ export default function Home() {
       },
     ]);
   }, []);
+
+  // Load saved workflows
+  const refreshSavedWorkflows = useCallback(() => {
+    api.getSavedWorkflows(sessionId).then((res) => {
+      setSavedWorkflows(res.workflows);
+    }).catch(() => null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    refreshSavedWorkflows();
+  }, [refreshSavedWorkflows]);
 
   const handleDismissOnboarding = useCallback(() => {
     localStorage.setItem(ONBOARDING_KEY, "1");
@@ -301,9 +396,24 @@ export default function Home() {
         });
         xpToastTimerRef.current = setTimeout(() => setXpToast(null), 3500);
       }
+
+      // Refresh saved workflows list (auto-saved by backend)
+      refreshSavedWorkflows();
     },
-    []
+    [refreshSavedWorkflows]
   );
+
+  const handleLoadWorkflow = useCallback((wf: WorkflowDefinition) => {
+    setCurrentWorkflow(wf);
+    setExecutionStatus(null);
+    setStepResults({});
+  }, []);
+
+  const handleDeleteWorkflow = useCallback((id: string) => {
+    api.deleteSavedWorkflow(id, sessionId).then(() => {
+      setSavedWorkflows((prev) => prev.filter((w) => w.id !== id));
+    }).catch(() => null);
+  }, [sessionId]);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -321,6 +431,9 @@ export default function Home() {
         avatarMode={avatarMode}
         onToggleMode={() => setAvatarMode((v) => !v)}
         sessionId={sessionId}
+        savedWorkflows={savedWorkflows}
+        onLoadWorkflow={handleLoadWorkflow}
+        onDeleteWorkflow={handleDeleteWorkflow}
       />
 
       {/* API health banner */}
