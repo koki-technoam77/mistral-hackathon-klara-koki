@@ -13,8 +13,14 @@ _initialized = False
 def init_weave(project: str = "kotoflow") -> None:
     global _initialized
     if not _initialized:
-        weave.init(project)
-        _initialized = True
+        try:
+            weave.init(project)
+            _initialized = True
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Weave/W&B init failed — tracing disabled", exc_info=True,
+            )
 
 
 @weave.op()

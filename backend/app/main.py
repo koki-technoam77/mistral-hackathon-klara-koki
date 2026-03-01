@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
@@ -6,6 +8,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import Settings
 from app.utils.wandb_tracking import init_weave
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -22,7 +26,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     settings = Settings()
     if settings.wandb_api_key:
-        init_weave(settings.wandb_project)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(init_weave, settings.wandb_project),
+                timeout=10,
+            )
+        except Exception:
+            logger.warning("Weave/W&B init timed out or failed — tracing disabled")
     yield
     # Cleanup: close persistent httpx clients and scheduler
     from app.api.routes import _anam_service, _scheduler
