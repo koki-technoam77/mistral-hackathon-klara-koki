@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import ChatPanel from "@/components/ChatPanel";
 import AvatarChat from "@/components/AvatarChat";
 import WorkflowVisualizer from "@/components/WorkflowVisualizer";
-import CharacterPanel from "@/components/CharacterPanel";
+
 import ConnectionsPanel from "@/components/ConnectionsPanel";
 import * as api from "@/lib/api";
 import type {
@@ -123,7 +123,7 @@ function Header({
 }) {
   const [showConnections, setShowConnections] = useState(false);
   return (
-    <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur shrink-0">
+    <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950/80 backdrop-blur shrink-0 z-50 relative">
       <div className="flex items-center gap-3">
         {/* Logo mark */}
         <svg viewBox="0 0 32 32" className="w-7 h-7" fill="none">
@@ -338,7 +338,7 @@ export default function Home() {
       </AnimatePresence>
 
       {/* Main content area */}
-      <main className="flex-1 overflow-hidden grid grid-rows-[1fr_auto] gap-3 p-3">
+      <main className="flex-1 overflow-hidden grid grid-rows-[1fr] gap-3 p-3">
         {avatarMode ? (
           /* ─── Avatar mode: Avatar + Workflow side by side ─── */
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,1fr)] gap-3 min-h-0 overflow-hidden">
@@ -383,8 +383,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Bottom row: Character panel */}
-        <CharacterPanel character={characterState} />
       </main>
 
       {/* XP toast notification */}
