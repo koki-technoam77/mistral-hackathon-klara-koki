@@ -138,6 +138,7 @@ class ChatResponse(BaseModel):
     workflow: Optional[WorkflowDefinition] = None
     character_state: CharacterState
     session_id: str
+    needs_connection: list[str] = []  # apps that need OAuth before execution
 
 
 ALLOWED_SERVICES = frozenset([
@@ -223,12 +224,29 @@ async def chat(request: ChatRequest):
 
         character_state = services["character_service"].get_state(request.session_id)
 
+        # Check which services need OAuth connection before the workflow can run
+        needs_connection: list[str] = []
+        if workflow:
+            composio_auth: Optional[ComposioAuthService] = services.get("composio_auth")
+            if composio_auth and composio_auth.available:
+                from app.services.composio_auth import ACTION_TO_APP, OAUTH_APPS
+                required_apps = set()
+                for step in workflow.steps:
+                    app = ACTION_TO_APP.get(step.action)
+                    if app and app in OAUTH_APPS:
+                        required_apps.add(app)
+                if required_apps:
+                    connections = await composio_auth.get_connections(entity_id=request.session_id)
+                    connected = {c["app"] for c in connections if c.get("status") == "active"}
+                    needs_connection = sorted(required_apps - connected)
+
         return ChatResponse(
             message=orchestrator_response.message,
             ready=orchestrator_response.ready,
             workflow=workflow,
             character_state=character_state,
             session_id=request.session_id,
+            needs_connection=needs_connection,
         )
 
     except HTTPException:

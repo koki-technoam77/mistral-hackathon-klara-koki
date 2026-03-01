@@ -80,6 +80,7 @@ export interface ChatResponse {
   workflow?: WorkflowDefinition;
   character_state: CharacterState;
   session_id: string;
+  needs_connection?: string[];
 }
 
 export interface WorkflowExecuteResponse {

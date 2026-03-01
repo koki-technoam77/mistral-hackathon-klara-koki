@@ -69,6 +69,7 @@ export default function AvatarChat({
 
   const [workflowReady, setWorkflowReady] = useState(false);
   const [needsConnectionApp, setNeedsConnectionApp] = useState<string | null>(null);
+  const pendingConnectionsRef = useRef<string[]>([]);
 
   const avatarRef = useRef<AnamAvatarHandle | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -151,14 +152,26 @@ export default function AvatarChat({
                 onWorkflowReady(res.workflow);
                 setWorkflowReady(true);
                 playNotificationSound();
-                // Add visible notification message to transcript
-                onNewMessage({
-                  id: crypto.randomUUID(),
-                  role: "assistant",
-                  content: `Workflow "${res.workflow.name}" generated! Tap "Run Workflow" below to execute it.`,
-                  timestamp: new Date(),
-                });
-                // Auto-dismiss after 5s
+
+                // Check if services need connection before running
+                if (res.needs_connection && res.needs_connection.length > 0) {
+                  pendingConnectionsRef.current = [...res.needs_connection];
+                  const appList = res.needs_connection.join(", ");
+                  onNewMessage({
+                    id: crypto.randomUUID(),
+                    role: "assistant",
+                    content: `Your automation "${res.workflow.name}" is ready, but you need to connect ${appList} first. Tap the connect button below to link your account.`,
+                    timestamp: new Date(),
+                  });
+                  setNeedsConnectionApp(res.needs_connection[0]);
+                } else {
+                  onNewMessage({
+                    id: crypto.randomUUID(),
+                    role: "assistant",
+                    content: `Automation "${res.workflow.name}" is ready! Tap "Run" below.`,
+                    timestamp: new Date(),
+                  });
+                }
                 setTimeout(() => {
                   if (mountedRef.current) setWorkflowReady(false);
                 }, 5000);
@@ -401,14 +414,29 @@ export default function AvatarChat({
             if (status.status === "active") {
               clearInterval(pollInterval);
               if (oauthWindow && !oauthWindow.closed) oauthWindow.close();
-              setNeedsConnectionApp(null);
               setIsConnecting(false);
-              onNewMessage({
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: `${appName} connected successfully! You can now run the workflow.`,
-                timestamp: new Date(),
-              });
+
+              // Check if more services need connection
+              const remaining = pendingConnectionsRef.current.filter((a) => a !== appName);
+              pendingConnectionsRef.current = remaining;
+
+              if (remaining.length > 0) {
+                setNeedsConnectionApp(remaining[0]);
+                onNewMessage({
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: `${appName} connected! Now please connect ${remaining[0]} too.`,
+                  timestamp: new Date(),
+                });
+              } else {
+                setNeedsConnectionApp(null);
+                onNewMessage({
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: `${appName} connected! All services are ready — you can run the automation now.`,
+                  timestamp: new Date(),
+                });
+              }
               playNotificationSound();
             }
           } catch {
@@ -469,12 +497,25 @@ export default function AvatarChat({
         onWorkflowReady(res.workflow);
         setWorkflowReady(true);
         playNotificationSound();
-        onNewMessage({
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: `Automation "${res.workflow.name}" is ready! Tap "Run" below.`,
-          timestamp: new Date(),
-        });
+
+        if (res.needs_connection && res.needs_connection.length > 0) {
+          pendingConnectionsRef.current = [...res.needs_connection];
+          const appList = res.needs_connection.join(", ");
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Your automation "${res.workflow.name}" is ready, but you need to connect ${appList} first. Tap the connect button below.`,
+            timestamp: new Date(),
+          });
+          setNeedsConnectionApp(res.needs_connection[0]);
+        } else {
+          onNewMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Automation "${res.workflow.name}" is ready! Tap "Run" below.`,
+            timestamp: new Date(),
+          });
+        }
         setTimeout(() => {
           if (mountedRef.current) setWorkflowReady(false);
         }, 5000);
