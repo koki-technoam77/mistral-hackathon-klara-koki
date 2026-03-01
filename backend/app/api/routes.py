@@ -74,6 +74,31 @@ def _verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Depend
         raise HTTPException(status_code=401, detail="Invalid authentication")
 
 
+async def _list_resources_for_orchestrator(app_name: str, entity_id: str) -> list[dict]:
+    """Callback injected into OrchestratorAgent to fetch user resources."""
+    services = _get_services()
+    executor: WorkflowExecutor = services["workflow_executor"]
+    composio_action = _RESOURCE_LIST_ACTIONS.get(app_name)
+    if not composio_action:
+        return []
+    if not executor._composio_toolset:
+        executor._init_composio()
+    if not executor._composio_toolset:
+        return []
+    try:
+        result = await asyncio.to_thread(
+            executor._composio_toolset.execute_action,
+            action=composio_action,
+            params={},
+            entity_id=entity_id,
+        )
+        data = result.get("data") if isinstance(result, dict) else result
+        return _normalize_resources(data, app_name)
+    except Exception:
+        logger.warning("Resource listing for orchestrator failed: %s", app_name, exc_info=True)
+        return []
+
+
 def _get_orchestrator(session_id: str) -> OrchestratorAgent:
     settings = _get_settings()
     now = time.time()
@@ -86,7 +111,10 @@ def _get_orchestrator(session_id: str) -> OrchestratorAgent:
     if session_id not in _sessions:
         if len(_sessions) >= _MAX_SESSIONS:
             raise HTTPException(status_code=429, detail="Too many active sessions")
-        _sessions[session_id] = (OrchestratorAgent(settings), now)
+        _sessions[session_id] = (
+            OrchestratorAgent(settings, resource_lister=_list_resources_for_orchestrator),
+            now,
+        )
     else:
         agent, _ = _sessions[session_id]
         _sessions[session_id] = (agent, now)  # Refresh timestamp
@@ -212,7 +240,7 @@ async def chat(request: ChatRequest):
     orchestrator = _get_orchestrator(request.session_id)
 
     try:
-        orchestrator_response: OrchestratorResponse = await orchestrator.chat(request.message)
+        orchestrator_response: OrchestratorResponse = await orchestrator.chat(request.message, entity_id=request.session_id)
 
         workflow = None
         if orchestrator_response.ready and orchestrator_response.workflow_request:
@@ -712,7 +740,7 @@ _RESOURCE_LIST_ACTIONS: dict[str, str] = {
 async def composio_list_resources(app_name: str, session_id: str = "default"):
     """List user resources for a service (e.g. Google Sheets, GitHub repos)."""
     services = _get_services()
-    executor: WorkflowExecutor = services["executor"]
+    executor: WorkflowExecutor = services["workflow_executor"]
 
     composio_action = _RESOURCE_LIST_ACTIONS.get(app_name)
     if not composio_action:
