@@ -34,7 +34,18 @@ export default function ConnectionsPanel({ sessionId }: Props) {
   const loadConnections = useCallback(async () => {
     try {
       const data = await api.getComposioConnections(sessionId);
-      setConnections(data.connections);
+      setConnections((prev) => {
+        // Merge: never downgrade a previously "active" connection to "not_connected"
+        // due to transient Composio API errors (rate limits, timeouts).
+        const prevMap = new Map(prev.map((c) => [c.app, c]));
+        return data.connections.map((conn) => {
+          const prevConn = prevMap.get(conn.app);
+          if (prevConn?.status === "active" && conn.status === "not_connected") {
+            return prevConn;
+          }
+          return conn;
+        });
+      });
     } catch {
       setError("Failed to load connections");
     } finally {
