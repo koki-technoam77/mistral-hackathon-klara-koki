@@ -8,6 +8,8 @@ import { initAnamAvatar, type AnamAvatarHandle } from "@/lib/anam";
 import {
   connectElevenLabs,
   stopElevenLabs,
+  isElevenLabsConnected,
+  sendTextToElevenLabs,
 } from "@/lib/elevenlabs-agent";
 
 interface Props {
@@ -547,13 +549,19 @@ export default function AvatarChat({
       timestamp: new Date(),
     });
 
+    // If ElevenLabs agent is connected, send text to it so the avatar knows
+    const sentToAgent = isElevenLabsConnected() && sendTextToElevenLabs(text);
+
     try {
       const res = await api.chat(text, sessionIdRef.current ?? undefined);
       if (!mountedRef.current) return;
       if (res.session_id) sessionIdRef.current = res.session_id;
       onCharacterUpdate(res.character_state);
 
-      if (res.message) {
+      // If ElevenLabs handled it, skip showing the orchestrator's text response
+      // (ElevenLabs will fire onAgentResponse with its own reply).
+      // But still process workflow detection below.
+      if (res.message && !sentToAgent) {
         onNewMessage({
           id: crypto.randomUUID(),
           role: "assistant",
@@ -561,19 +569,20 @@ export default function AvatarChat({
           timestamp: new Date(),
         });
         // Speak the response through the avatar (non-blocking)
-        api.synthesizePcmAudio(res.message).then((pcmBuf) => {
-          if (!mountedRef.current || !avatarRef.current) return;
-          // Send in ~8KB chunks (4096 samples × 2 bytes) — Anam expects streamed audio
-          const CHUNK_SIZE = 8192;
-          const bytes = new Uint8Array(pcmBuf);
-          for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
-            const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
-            avatarRef.current.sendAudioChunk(chunk);
-          }
-          avatarRef.current.endSequence();
-        }).catch((err) => {
-          console.error("[Chat] TTS → avatar failed:", err);
-        });
+        if (avatarRef.current) {
+          api.synthesizePcmAudio(res.message).then((pcmBuf) => {
+            if (!mountedRef.current || !avatarRef.current) return;
+            const CHUNK_SIZE = 8192;
+            const bytes = new Uint8Array(pcmBuf);
+            for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
+              const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
+              avatarRef.current!.sendAudioChunk(chunk);
+            }
+            avatarRef.current!.endSequence();
+          }).catch((err) => {
+            console.error("[Chat] TTS → avatar failed:", err);
+          });
+        }
       }
 
       if (res.ready && res.workflow) {

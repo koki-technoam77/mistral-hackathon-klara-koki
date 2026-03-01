@@ -209,3 +209,14 @@ export function stopElevenLabs(): void {
 export function isElevenLabsConnected(): boolean {
   return ws?.readyState === WebSocket.OPEN;
 }
+
+/** Send a text message to the ElevenLabs agent (as if the user spoke it). */
+export function sendTextToElevenLabs(text: string): boolean {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  try {
+    ws.send(JSON.stringify({ type: "user_message", message: text }));
+    return true;
+  } catch {
+    return false;
+  }
+}
