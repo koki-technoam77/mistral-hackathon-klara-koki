@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -10,6 +10,7 @@ import {
   useEdgesState,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -202,6 +203,11 @@ export default function WorkflowVisualizer({ workflow, executionStatus, stepResu
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [visibleCount, setVisibleCount] = useState(0);
+  const rfInstance = useRef<ReactFlowInstance | null>(null);
+
+  const onInit = useCallback((instance: ReactFlowInstance) => {
+    rfInstance.current = instance;
+  }, []);
 
   // Determine active + completed steps from step_results
   const completedStepIds = useMemo(() => {
@@ -248,6 +254,14 @@ export default function WorkflowVisualizer({ workflow, executionStatus, stepResu
     );
     setNodes(n);
     setEdges(e);
+
+    // Fit view to show all nodes after the last node appears
+    if (visibleCount >= workflow.steps.length && rfInstance.current) {
+      // Small delay to let React Flow update layout
+      requestAnimationFrame(() => {
+        rfInstance.current?.fitView({ padding: 0.25, duration: 300 });
+      });
+    }
   }, [workflow, visibleCount, activeStepId, completedStepIds]);
 
   if (!workflow) {
@@ -352,10 +366,11 @@ export default function WorkflowVisualizer({ workflow, executionStatus, stepResu
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onInit={onInit}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.3 }}
-          minZoom={0.3}
+          fitViewOptions={{ padding: 0.25 }}
+          minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
