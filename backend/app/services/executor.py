@@ -110,6 +110,21 @@ _COMPOSIO_PARAM_MAP: dict[str, dict[str, str]] = {
         "body": "text",
         "channel": "channel",
     },
+    "GOOGLESHEETS_CREATE_SPREADSHEET_ROW": {
+        "spreadsheet_id": "spreadsheet_id",
+        "sheet_name": "sheet_name",
+        "row_data": "values",
+    },
+    "GOOGLESHEETS_QUERY_TABLE": {
+        "spreadsheet_id": "spreadsheet_id",
+        "sheet_name": "sheet_name",
+        "range": "range",
+    },
+    "GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW": {
+        "spreadsheet_id": "spreadsheet_id",
+        "sheet_name": "sheet_name",
+        "query": "query",
+    },
     "TWITTER_CREATION_OF_A_POST": {
         "content": "text",
         "message": "text",

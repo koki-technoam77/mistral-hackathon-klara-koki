@@ -208,7 +208,9 @@ Rules:
   - send_email (params: to, subject, body) — terminal step
   - send_slack_message (params: channel, message) — terminal step. Channel must be lowercase without '#' prefix (e.g. "general", not "#General")
   - create_calendar_event (params: title, start, end) — terminal step
-  - sheets_create_row, sheets_query, sheets_lookup_row → output key: result
+  - sheets_create_row (params: spreadsheet_id, sheet_name, row_data) → output key: result. spreadsheet_id is required — use the exact ID from the user request.
+  - sheets_query (params: spreadsheet_id, sheet_name, range) → output key: result. spreadsheet_id is required.
+  - sheets_lookup_row (params: spreadsheet_id, sheet_name, query) → output key: result. spreadsheet_id is required.
   - linkedin_create_post, linkedin_share_url → output key: result
   - tweet, twitter_search → output key: result
   - github_create_issue, github_create_pr, github_list_repos → output key: result
