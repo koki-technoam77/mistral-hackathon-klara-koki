@@ -32,7 +32,7 @@ COMPOSIO_ACTION_MAP = {
     "create_calendar_event": "GOOGLECALENDAR_CREATE_EVENT",
     "list_emails": "GMAIL_LIST_EMAILS",
     "create_task": "TODOIST_CREATE_TASK",
-    "send_slack_message": "SLACK_SENDS_MESSAGE",
+    "send_slack_message": "SLACK_SEND_MESSAGE",
 }
 
 # Composio param key normalization per action
@@ -49,7 +49,7 @@ _COMPOSIO_PARAM_MAP: dict[str, dict[str, str]] = {
         "start": "start_datetime",
         "end": "end_datetime",
     },
-    "SLACK_SENDS_MESSAGE": {
+    "SLACK_SEND_MESSAGE": {
         "message": "text",
         "body": "text",
         "channel": "channel",
@@ -69,12 +69,20 @@ class WorkflowExecutor:
         self.mistral_client = Mistral(api_key=config.mistral_api_key)
         self.allowed_domains = frozenset(config.allowed_domains_list)
         self._composio_toolset = None
-        if config.composio_api_key:
-            try:
-                from composio import ComposioToolSet
-                self._composio_toolset = ComposioToolSet(api_key=config.composio_api_key)
-            except Exception:
-                logger.warning("Composio SDK init failed, falling back to mock")
+        self._composio_init_attempted = False
+        self._init_composio()
+
+    def _init_composio(self) -> None:
+        """Initialize Composio SDK. Called at init and retried on first action if needed."""
+        if self._composio_toolset or not self.config.composio_api_key:
+            return
+        self._composio_init_attempted = True
+        try:
+            from composio import ComposioToolSet
+            self._composio_toolset = ComposioToolSet(api_key=self.config.composio_api_key)
+            logger.info("Composio SDK initialized successfully")
+        except Exception:
+            logger.error("Composio SDK init failed (key set but SDK error)", exc_info=True)
 
     async def execute(self, workflow: WorkflowDefinition, entity_id: str = "default") -> WorkflowExecution:
         start = time.monotonic()
@@ -156,8 +164,17 @@ class WorkflowExecutor:
     async def _execute_composio(self, step: WorkflowStep, context: dict, entity_id: str = "default") -> dict:
         params = self._interpolate_params(step.params, context)
 
+        # Retry init if first attempt failed (e.g. network issue at startup)
+        if not self._composio_toolset and self.config.composio_api_key:
+            self._init_composio()
+
         if not self._composio_toolset:
             # Demo-friendly mock: show what would be executed
+            has_key = bool(self.config.composio_api_key)
+            logger.warning(
+                "Composio SDK not available for '%s' (api_key_set=%s). Using demo mock.",
+                step.action, has_key,
+            )
             demo_detail = ""
             if step.action == "send_email":
                 to = params.get("to", params.get("recipient", "N/A"))
@@ -183,6 +200,10 @@ class WorkflowExecutor:
         normalized = self._normalize_composio_params(composio_action, params)
 
         try:
+            logger.info(
+                "Executing Composio action: %s (entity=%s, params=%s)",
+                composio_action, entity_id, list(normalized.keys()),
+            )
             result = await asyncio.to_thread(
                 self._composio_toolset.execute_action,
                 action=composio_action,

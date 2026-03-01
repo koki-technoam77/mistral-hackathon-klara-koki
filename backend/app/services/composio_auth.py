@@ -19,16 +19,24 @@ SUPPORTED_APPS = sorted(set(ACTION_TO_APP.values()))
 
 class ComposioAuthService:
     def __init__(self, config):
+        self._config = config
         self._toolset = None
-        if config.composio_api_key:
-            try:
-                from composio import ComposioToolSet
-                self._toolset = ComposioToolSet(api_key=config.composio_api_key)
-            except Exception:
-                logger.warning("Composio SDK init failed for auth service")
+        self._init_sdk()
+
+    def _init_sdk(self) -> None:
+        if self._toolset or not self._config.composio_api_key:
+            return
+        try:
+            from composio import ComposioToolSet
+            self._toolset = ComposioToolSet(api_key=self._config.composio_api_key)
+            logger.info("Composio auth SDK initialized")
+        except Exception:
+            logger.error("Composio auth SDK init failed", exc_info=True)
 
     @property
     def available(self) -> bool:
+        if not self._toolset and self._config.composio_api_key:
+            self._init_sdk()
         return self._toolset is not None
 
     async def get_connections(self, entity_id: str) -> list[dict]:
