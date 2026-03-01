@@ -763,3 +763,28 @@ async def delete_webhook(webhook_id: str):
 @router.get("/health", response_model=HealthResponse)
 async def health():
     return HealthResponse(status="ok")
+
+
+@router.get("/debug/composio", dependencies=[Depends(_verify_api_key)])
+async def debug_composio(session_id: str = "default"):
+    """Diagnostic: check Composio SDK status and connections."""
+    services = _get_services()
+    settings = _get_settings()
+    executor: WorkflowExecutor = services["workflow_executor"]
+    composio_auth = services.get("composio_auth")
+
+    result: dict = {
+        "api_key_set": bool(settings.composio_api_key),
+        "api_key_prefix": settings.composio_api_key[:8] + "..." if settings.composio_api_key else None,
+        "executor_sdk_initialized": executor._composio_toolset is not None,
+        "auth_sdk_initialized": composio_auth.available if composio_auth else False,
+    }
+
+    if composio_auth and composio_auth.available:
+        try:
+            connections = await composio_auth.get_connections(entity_id=session_id)
+            result["connections"] = connections
+        except Exception as e:
+            result["connections_error"] = str(e)[:200]
+
+    return result
