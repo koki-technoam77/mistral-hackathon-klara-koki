@@ -43,6 +43,10 @@ COMPOSIO_ACTIONS = frozenset([
     "github_create_pr",
     "github_star_repo",
     "github_list_repos",
+    # Gemini — no auth required
+    "gemini_generate",
+    "gemini_generate_image",
+    "gemini_embed",
     # Hacker News — no auth required
     "hackernews_frontpage",
     "hackernews_get_item",
@@ -75,6 +79,10 @@ COMPOSIO_ACTION_MAP = {
     "github_create_pr": "GITHUB_CREATE_A_PULL_REQUEST",
     "github_star_repo": "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
     "github_list_repos": "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
+    # Gemini (no auth, direct execution)
+    "gemini_generate": "GEMINI_GENERATE_CONTENT",
+    "gemini_generate_image": "GEMINI_GENERATE_IMAGE",
+    "gemini_embed": "GEMINI_EMBED_CONTENT",
     # Hacker News (no auth, direct execution)
     "hackernews_frontpage": "HACKERNEWS_GET_FRONTPAGE",
     "hackernews_get_item": "HACKERNEWS_GET_ITEM_WITH_ID",

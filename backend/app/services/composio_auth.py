@@ -29,6 +29,10 @@ ACTION_TO_APP = {
     "github_create_pr": "github",
     "github_star_repo": "github",
     "github_list_repos": "github",
+    # Gemini (no auth)
+    "gemini_generate": "gemini",
+    "gemini_generate_image": "gemini",
+    "gemini_embed": "gemini",
     # Hacker News (no auth)
     "hackernews_frontpage": "hackernews",
     "hackernews_get_item": "hackernews",
@@ -44,7 +48,7 @@ OAUTH_APPS = frozenset([
 ])
 
 # Apps that work without auth (no-auth toolkits)
-NO_AUTH_APPS = frozenset(["hackernews"])
+NO_AUTH_APPS = frozenset(["hackernews", "gemini"])
 
 # Deduplicated list of supported apps for UI
 SUPPORTED_APPS = sorted(set(ACTION_TO_APP.values()))

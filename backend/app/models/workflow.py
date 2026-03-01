@@ -79,6 +79,10 @@ ALLOWED_ACTIONS = frozenset([
     "github_create_pr",
     "github_star_repo",
     "github_list_repos",
+    # Gemini (Composio, no auth)
+    "gemini_generate",
+    "gemini_generate_image",
+    "gemini_embed",
     # Hacker News (Composio, no auth)
     "hackernews_frontpage",
     "hackernews_get_item",
